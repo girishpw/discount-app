@@ -1,0 +1,3 @@
+from google.auth import default
+credentials, project = default()
+client = bigquery.Client(credentials=credentials, project=project)
