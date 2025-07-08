@@ -1,4 +1,6 @@
 steps:
+  - name: 'gcr.io/cloud-builders/git'
+    args: ['rev-parse', 'HEAD']
   - name: 'gcr.io/cloud-builders/docker'
     args: ['build', '-t', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app', '.']
   - name: 'gcr.io/cloud-builders/docker'
