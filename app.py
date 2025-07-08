@@ -1,5 +1,6 @@
 import os
-from flask import Flask, request, render_template, redirect, url_for, flash
+import logging
+from flask import Flask, request, render_template, redirect, url_for, flash, jsonify
 from google.cloud import bigquery
 from google.cloud import secretmanager
 from google.oauth2 import service_account
@@ -7,6 +8,10 @@ import smtplib
 from email.mime.text import MIMEText
 import json
 from datetime import datetime
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = 'your-secret-key'
@@ -19,14 +24,20 @@ client = None
 def get_bigquery_client():
     global client
     if client is None:
-        # Access secret from Secret Manager
-        secret_client = secretmanager.SecretManagerServiceClient()
-        secret_name = f"projects/{project_id}/secrets/discount-key/versions/latest"
-        response = secret_client.access_secret_version(name=secret_name)
-        secret = response.payload.data.decode('UTF-8')
-        
-        credentials = service_account.Credentials.from_service_account_info(json.loads(secret))
-        client = bigquery.Client(credentials=credentials, project=project_id)
+        try:
+            # Access secret from Secret Manager
+            secret_client = secretmanager.SecretManagerServiceClient()
+            secret_name = f"projects/{project_id}/secrets/discount-key/versions/latest"
+            response = secret_client.access_secret_version(name=secret_name)
+            secret = response.payload.data.decode('UTF-8')
+            
+            credentials = service_account.Credentials.from_service_account_info(json.loads(secret))
+            client = bigquery.Client(credentials=credentials, project=project_id)
+            logger.info("BigQuery client initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize BigQuery client: {e}")
+            # For now, continue without BigQuery client - app should still start
+            client = None
     return client
 
 # Email configuration
@@ -36,19 +47,27 @@ SMTP_SERVER = 'smtp.gmail.com'
 SMTP_PORT = 587
 
 def send_email(to_email, subject, body):
-    msg = MIMEText(body)
-    msg['Subject'] = subject
-    msg['From'] = EMAIL_SENDER
-    msg['To'] = to_email
-    
-    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-        server.starttls()
-        server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-        server.send_message(msg)
+    try:
+        msg = MIMEText(body)
+        msg['Subject'] = subject
+        msg['From'] = EMAIL_SENDER
+        msg['To'] = to_email
+        
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.send_message(msg)
+        logger.info(f"Email sent successfully to {to_email}")
+    except Exception as e:
+        logger.error(f"Failed to send email to {to_email}: {e}")
 
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
 
 @app.route('/request_discount', methods=['GET', 'POST'])
 def request_discount():
@@ -224,4 +243,6 @@ def approve_request():
     return render_template('approve_request.html', requests=requests)
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    port = int(os.environ.get('PORT', 8080))
+    logger.info(f"Starting application on port {port}")
+    app.run(host='0.0.0.0', port=port, debug=False)
