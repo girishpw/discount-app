@@ -2,9 +2,17 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
+# Copy requirements first for better caching
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Verify gunicorn is installed
+RUN which gunicorn && gunicorn --version
+
+# Copy application code
 COPY . .
 
 EXPOSE 8080
