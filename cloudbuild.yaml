@@ -1,0 +1,17 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'asia-south2-docker.pkg.dev/gewportal2025/discount-repo/discount-app', '.']
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'asia-south2-docker.pkg.dev/gewportal2025/discount-repo/discount-app']
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'discount-app'
+      - '--image=asia-south2-docker.pkg.dev/gewportal2025/discount-repo/discount-app'
+      - '--platform=managed'
+      - '--region=asia-south2'
+      - '--allow-unauthenticated'
+      - '--service-account=classmanager-sa@gewportal2025.iam.gserviceaccount.com'
+images:
+  - 'asia-south2-docker.pkg.dev/gewportal2025/discount-repo/discount-app'
