@@ -1,4 +1,7 @@
 steps:
+  # Force checkout of the latest code from the main branch
+  - name: 'gcr.io/cloud-builders/git'
+    args: ['clone', '--branch', 'main', 'https://github.com/girishpw/discount-app', '.']
   - name: 'gcr.io/cloud-builders/git'
     args: ['rev-parse', 'HEAD']
   - name: 'gcr.io/cloud-builders/docker'
