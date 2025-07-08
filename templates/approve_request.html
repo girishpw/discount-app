@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    <h1 class="text-2xl font-bold mb-4">Approve Discount Requests</h1>
+    
+    <div class="space-y-4">
+        {% for req in requests %}
+        <div class="bg-white p-4 rounded-lg shadow">
+            <h3 class="text-lg font-semibold">{{ req.student_name }} - {{ req.enquiry_no }}</h3>
+            <p>Branch: {{ req.branch_name }}</p>
+            <p>MRP: ${{ req.mrp }}</p>
+            <p>Requested Discount: ${{ req.net_discount }}</p>
+            <p>Status: {{ req.status }}</p>
+            
+            <form method="POST" class="mt-4 space-y-2">
+                <input type="hidden" name="request_id" value="{{ req.enquiry_no }}">
+                <div>
+                    <label for="approver_email" class="block text-sm font-medium text-gray-700">Your Email</label>
+                    <input type="email" name="approver_email" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div>
+                    <label for="discounted_fees" class="block text-sm font-medium text-gray-700">Edit Discounted Fees (optional)</label>
+                    <input type="number" step="0.01" name="discounted_fees" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+                </div>
+                <div class="flex space-x-2">
+                    <button type="submit" name="action" value="APPROVE" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
+                        Approve
+                    </button>
+                    <button type="submit" name="action" value="REJECT" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
+                        Reject
+                    </button>
+                </div>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

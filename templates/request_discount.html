@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="max-w-md mx-auto">
+    <h1 class="text-2xl font-bold mb-4">Request Discount</h1>
+    <form method="POST" class="space-y-4">
+        <div>
+            <label for="enquiry_no" class="block text-sm font-medium text-gray-700">Enquiry No.</label>
+            <input type="text" id="enquiry_no" name="enquiry_no" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+        </div>
+        <div>
+            <label for="student_name" class="block text-sm font-medium text-gray-700">Student Name</label>
+            <input type="text" id="student_name" name="student_name" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+        </div>
+        <div>
+            <label for="mobile_no" class="block text-sm font-medium text-gray-700">Mobile No.</label>
+            <input type="tel" id="mobile_no" name="mobile_no" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+        </div>
+        <div>
+            <label for="card_name" class="block text-sm font-medium text-gray-700">Card Name</label>
+            <input type="text" id="card_name" name="card_name" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+        </div>
+        <div>
+            <label for="mrp" class="block text-sm font-medium text-gray-700">MRP</label>
+            <input type="number" step="0.01" id="mrp" name="mrp" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+        </div>
+        <div>
+            <label for="discounted_fees" class="block text-sm font-medium text-gray-700">Discounted Fees</label>
+            <input type="number" step="0.01" id="discounted_fees" name="discounted_fees" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+        </div>
+        <div>
+            <label for="reason" class="block text-sm font-medium text-gray-700">Reason for Discount</label>
+            <textarea id="reason" name="reason" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm"></textarea>
+        </div>
+        <div>
+            <label for="remarks" class="block text-sm font-medium text-gray-700">Remarks</label>
+            <textarea id="remarks" name="remarks" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm"></textarea>
+        </div>
+        <div>
+            <label for="requester_email" class="block text-sm font-medium text-gray-700">Requester Email</label>
+            <input type="email" id="requester_email" name="requester_email" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+        </div>
+        <div>
+            <label for="requester_name" class="block text-sm font-medium text-gray-700">Requester Name</label>
+            <input type="text" id="requester_name" name="requester_name" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+        </div>
+        <div>
+            <label for="branch_name" class="block text-sm font-medium text-gray-700">Branch Name</label>
+            <input type="text" id="branch_name" name="branch_name" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+        </div>
+        <button type="submit" class="w-full bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+            Submit Request
+        </button>
+    </form>
+</div>
+{% endblock %}

@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="max-w-md mx-auto">
+    <h1 class="text-2xl font-bold mb-4">Discount Management System</h1>
+    <div class="space-y-4">
+        <a href="{{ url_for('request_discount') }}" class="block bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-center">
+            Request Discount
+        </a>
+        <a href="{{ url_for('approve_request') }}" class="block bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded text-center">
+            Approve Requests
+        </a>
+    </div>
+</div>
+{% endblock %}
