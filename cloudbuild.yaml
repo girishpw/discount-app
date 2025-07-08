@@ -1,22 +1,16 @@
 steps:
-  # Force checkout of the latest code from the main branch
-  - name: 'gcr.io/cloud-builders/git'
-    args: ['clone', '--branch', 'main', 'https://github.com/girishpw/discount-app', '.']
-  - name: 'gcr.io/cloud-builders/git'
-    args: ['rev-parse', 'HEAD']
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app', '.']
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app']
-  - name: 'gcr.io/cloud-builders/gcloud'
-    args:
-      - 'run'
-      - 'deploy'
-      - 'discount-rquest-app'
-      - '--image=asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app'
-      - '--platform=managed'
-      - '--region=asia-south2'
-      - '--allow-unauthenticated'
-      - '--service-account=classmanager-sa@gewportal2025.iam.gserviceaccount.com'
-images:
-  - 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app'
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app', '.']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app']
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: 'gcloud'
+  args:
+  - 'run'
+  - 'deploy'
+  - 'discount-rquest-app'
+  - '--image=asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app'
+  - '--platform=managed'
+  - '--region=asia-south2'
+  - '--allow-unauthenticated'
+  - '--service-account=classmanager-sa@gewportal2025.iam.gserviceaccount.com'
