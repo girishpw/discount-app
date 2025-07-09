@@ -1,37 +1,100 @@
-{% extends 'base.html' %}
+{% extends 'dashboard.html' %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto">
-    <h1 class="text-2xl font-bold mb-4">Approve Discount Requests</h1>
-    
-    <div class="space-y-4">
+<div class="p-6">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-gray-800">Approve Discount Requests</h1>
+        <div class="flex space-x-3">
+            <button class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+                <i class="fas fa-filter mr-2"></i> Filter
+            </button>
+            <button class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50">
+                <i class="fas fa-sync-alt mr-2"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <div class="space-y-6">
         {% for req in requests %}
-        <div class="bg-white p-4 rounded-lg shadow">
-            <h3 class="text-lg font-semibold">{{ req.student_name }} - {{ req.enquiry_no }}</h3>
-            <p>Branch: {{ req.branch_name }}</p>
-            <p>MRP: ₹{{ req.mrp }}</p>
-            <p>Requested Discount: ₹{{ req.net_discount }}</p>
-            <p>Status: {{ req.status }}</p>
-            
-            <form method="POST" class="mt-4 space-y-2">
-                <input type="hidden" name="request_id" value="{{ req.enquiry_no }}">
-                <div>
-                    <label for="approver_email" class="block text-sm font-medium text-gray-700">Comments</label>
-                    <input type="text" name="approver_email" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm">
+        <div class="request-card bg-white rounded-xl shadow-sm overflow-hidden">
+            <div class="p-6">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+                    <div>
+                        <h3 class="text-xl font-bold text-gray-900">{{ req.student_name }}</h3>
+                        <div class="flex items-center mt-2">
+                            <span class="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full mr-2">
+                                {{ req.enquiry_no }}
+                            </span>
+                            <span class="bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded-full">
+                                {{ req.branch_name }}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div class="text-right">
+                        <p class="text-2xl font-bold text-gray-900">₹{{ req.mrp|int }}</p>
+                        <p class="text-gray-600">Discount: ₹{{ req.net_discount|int }}</p>
+                    </div>
                 </div>
-                <div>
-                    <label for="discounted_fees" class="block text-sm font-medium text-gray-700">Approved Discount</label>
-                    <input type="text" name="discounted_fees" id="discounted_fees" class="mt-1 block w-full shadow-sm sm:text-sm border-gray-300 rounded-md" placeholder="Enter approved discount">
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                    <div>
+                        <h4 class="font-medium text-gray-700 mb-2">Request Details</h4>
+                        <ul class="text-gray-600">
+                            <li class="flex items-center py-1">
+                                <i class="fas fa-user-circle mr-2 text-blue-500"></i>
+                                <span>Requester: {{ req.requester_name }}</span>
+                            </li>
+                            <li class="flex items-center py-1">
+                                <i class="fas fa-envelope mr-2 text-blue-500"></i>
+                                <span>{{ req.requester_email }}</span>
+                            </li>
+                            <li class="flex items-center py-1">
+                                <i class="fas fa-calendar mr-2 text-blue-500"></i>
+                                <span>Submitted: {{ req.created_at|datetimeformat }}</span>
+                            </li>
+                        </ul>
+                    </div>
+                    
+                    <div>
+                        <h4 class="font-medium text-gray-700 mb-2">Reason for Discount</h4>
+                        <p class="text-gray-600 bg-gray-50 p-3 rounded-lg">
+                            {{ req.reason }}
+                        </p>
+                    </div>
                 </div>
-                <div class="flex space-x-2">
-                    <button type="submit" name="action" value="APPROVE" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded">
-                        Approve
-                    </button>
-                    <button type="submit" name="action" value="REJECT" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">
-                        Reject
-                    </button>
-                </div>
-            </form>
+                
+                <form method="POST" class="mt-6">
+                    <input type="hidden" name="request_id" value="{{ req.enquiry_no }}">
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-gray-700 font-medium mb-2">Comments</label>
+                            <textarea name="approver_email" required 
+                                class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                rows="3" placeholder="Add your comments"></textarea>
+                        </div>
+                        
+                        <div>
+                            <label class="block text-gray-700 font-medium mb-2">Approved Discount (₹)</label>
+                            <input type="number" name="discounted_fees" 
+                                class="w-full border border-gray-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                placeholder="Enter approved discount" value="{{ req.discounted_fees|int }}">
+                        </div>
+                    </div>
+                    
+                    <div class="flex space-x-4 mt-6">
+                        <button type="submit" name="action" value="APPROVE" 
+                            class="flex-1 bg-green-600 text-white font-medium py-3 rounded-lg hover:bg-green-700 transition flex items-center justify-center">
+                            <i class="fas fa-check-circle mr-2"></i> Approve
+                        </button>
+                        <button type="submit" name="action" value="REJECT" 
+                            class="flex-1 bg-red-600 text-white font-medium py-3 rounded-lg hover:bg-red-700 transition flex items-center justify-center">
+                            <i class="fas fa-times-circle mr-2"></i> Reject
+                        </button>
+                    </div>
+                </form>
+            </div>
         </div>
         {% endfor %}
     </div>

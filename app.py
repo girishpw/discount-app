@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'flask_secret_key')  # Ensure this is set
 PORT = int(os.environ.get("PORT", 8080))
 
 # Replace hardcoded sensitive information with environment variables
@@ -38,6 +38,10 @@ if missing_vars:
     logger.warning(f"Missing required environment variables: {', '.join(missing_vars)}")
     logger.warning("Application may not function properly")
 
+# Ensure proper session configuration
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_PERMANENT'] = False
+
 # Initialize BigQuery client
 project_id = 'gewportal2025'
 dataset_id = 'discount_management'
@@ -56,10 +60,16 @@ def get_bigquery_client():
             raise
     return client
 
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        session['logged_in_email'] = request.form['email']
+        email = request.form['email']
+        session['logged_in_email'] = email
+        
+        # Set a default approver_level for non-approvers
+        session['approver_level'] = 'User'
+        
         return redirect(url_for('index'))
     return render_template('login.html')
 
@@ -83,14 +93,25 @@ def send_email(to_email, subject, body):
     except Exception as e:
         logger.error(f"Failed to send email to {to_email}: {e}")
 
+@app.before_request
+def track_logged_in_user():
+    # Only log if the key exists, don't try to access it
+    if 'logged_in_email' in session:
+        logger.info(f"Session contains logged-in email")
+    else:
+        logger.info("No logged-in user found in session")
+
+
 @app.route('/')
 def index():
-    session['approver_level'] = session.get('approver_level', 'Unknown')
-    return render_template('index.html')
+    # Set approver_level from session or default to 'Unknown'
+    approver_level = session.get('approver_level', 'Unknown')
+    return render_template('index.html', approver_level=approver_level)
 
 @app.route('/_health')
 def health_check():
     return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat(),'port': PORT}), 200
+
 
 @app.route('/request_discount', methods=['GET', 'POST'])
 def request_discount():
@@ -209,23 +230,9 @@ def request_discount():
             flash("An error occurred while processing your request. Please try again later.", "error")
             return redirect(url_for('request_discount'))
 
-    return render_template('request_discount.html', approver_level=session.get('approver_level', 'Unknown'))
+    approver_level = session.get('approver_level', 'Unknown')
+    return render_template('request_discount.html', approver_level=approver_level)
 
-# Update session middleware
-@app.before_request
-def track_logged_in_user():
-    # Check if email exists in session before logging
-    if 'logged_in_email' in session:
-        logger.info(f"Logged in email: {session['logged_in_email']}")
-    else:
-        logger.info("No logged-in user found in session")
-
-# Replace hardcoded email with dynamic user tracking logic
-@app.before_request
-def track_logged_in_user():
-    # Simulate fetching logged-in user email dynamically
-    # session['logged_in_email'] = request.headers.get('X-User-Email', 'unknown@example.com')
-    logger.info(f"Session updated with logged-in email: {session['logged_in_email']}")
 
 @app.route('/approve_request', methods=['GET', 'POST'])
 def approve_request():
@@ -387,12 +394,85 @@ def approve_request():
         result = client.query(query).result()
         requests = list(result)
         logger.info(f"Pending requests fetched successfully: {requests}")
-        return render_template('approve_request.html', requests=requests)
-
+        return render_template('approve_request.html', 
+                          requests=requests, 
+                          approver_level=session.get('approver_level', 'Unknown'))
     except Exception as e:
         logger.error(f"Error fetching pending requests: {e}")
         flash('An error occurred while fetching pending requests. Please try again later.', 'error')
         return redirect(url_for('index'))
+
+# Add new routes for redesigned UI
+def get_dashboard_stats():
+    client = get_bigquery_client()
+    total_requests = pending_requests = approved_requests = rejected_requests = 0
+    recent_requests = []
+    try:
+        # Get stats
+        stats_query = f"""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status LIKE 'APPROVED%' THEN 1 ELSE 0 END) as approved,
+                SUM(CASE WHEN status = 'REJECTED' THEN 1 ELSE 0 END) as rejected
+            FROM `{project_id}.{dataset_id}.discount_requests`
+        """
+        stats_result = list(client.query(stats_query).result())[0]
+        total_requests = stats_result['total'] or 0
+        pending_requests = stats_result['pending'] or 0
+        approved_requests = stats_result['approved'] or 0
+        rejected_requests = stats_result['rejected'] or 0
+        # Get recent requests
+        recent_query = f"""
+            SELECT enquiry_no, student_name, branch_name, status, mrp, discounted_fees, net_discount
+            FROM `{project_id}.{dataset_id}.discount_requests`
+            ORDER BY created_at DESC
+            LIMIT 5
+        """
+        recent_requests = list(client.query(recent_query).result())
+    except Exception as e:
+        logger.error(f"Error fetching dashboard stats: {e}")
+    return total_requests, pending_requests, approved_requests, rejected_requests, recent_requests
+
+@app.route('/dashboard')
+def dashboard():
+    total_requests, pending_requests, approved_requests, rejected_requests, recent_requests = get_dashboard_stats()
+    return render_template(
+        'dashboard.html',
+        total_requests=total_requests,
+        pending_requests=pending_requests,
+        approved_requests=approved_requests,
+        rejected_requests=rejected_requests,
+        recent_requests=recent_requests
+    )
+
+@app.route('/analytics')
+def analytics():
+    return render_template('analytics.html')
+
+@app.route('/settings')
+def settings():
+    return render_template('settings.html')
+
+# Add to app.py
+def parse_datetime(value):
+    from dateutil import parser
+    try:
+        return parser.parse(value)
+    except Exception:
+        return value
+
+@app.template_filter('datetimeformat')
+def datetimeformat(value, format='%b %d, %Y %I:%M %p'):
+    if value is None:
+        return ""
+    dt = value
+    if isinstance(value, str):
+        dt = parse_datetime(value)
+    try:
+        return dt.strftime(format)
+    except Exception:
+        return str(value)
 
 @app.route('/test_adc')
 def test_adc():
@@ -409,7 +489,31 @@ def test_adc():
 os.environ['GOOGLE_CLOUD_PROJECT'] = 'gewportal2025'
 logger.info(f"GOOGLE_CLOUD_PROJECT set to: {os.environ.get('GOOGLE_CLOUD_PROJECT')}")
 
-logger.info(f"GOOGLE_APPLICATION_CREDENTIALS: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")
+# Ensure GOOGLE_APPLICATION_CREDENTIALS is set
+if not os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
+    logger.error("GOOGLE_APPLICATION_CREDENTIALS is not set. BigQuery client will fail to initialize.")
+else:
+    logger.info(f"GOOGLE_APPLICATION_CREDENTIALS: {os.getenv('GOOGLE_APPLICATION_CREDENTIALS')}")
+
+# Retrieve credentials from Secret Manager
+SECRET_NAME = os.getenv('SECRET_NAME', 'discount-key')
+
+try:
+    secret_client = secretmanager.SecretManagerServiceClient()
+    secret_path = f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT')}/secrets/{SECRET_NAME}/versions/latest"
+    response = secret_client.access_secret_version(name=secret_path)
+    credentials_content = response.payload.data.decode('UTF-8')
+
+    # Write credentials to a temporary file
+    temp_credentials_path = '/tmp/gewportal2025-key.json'
+    with open(temp_credentials_path, 'w') as temp_file:
+        temp_file.write(credentials_content)
+
+    # Set GOOGLE_APPLICATION_CREDENTIALS to the temporary file
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_credentials_path
+    logger.info(f"GOOGLE_APPLICATION_CREDENTIALS set to: {temp_credentials_path}")
+except Exception as e:
+    logger.error(f"Failed to retrieve credentials from Secret Manager: {e}")
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORT)

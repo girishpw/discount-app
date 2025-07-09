@@ -4,44 +4,255 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Discount Management System</title>
-    <!-- Remove CDN and use built CSS -->
-    <link href="{{ url_for('static', filename='css/tailwind.css') }}" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#2563eb',
+                        secondary: '#1e40af',
+                        accent: '#3b82f6',
+                        light: '#f8fafc',
+                        dark: '#0f172a'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        
+        .dashboard-container {
+            display: grid;
+            grid-template-columns: 260px 1fr;
+            min-height: 100vh;
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar {
+                position: fixed;
+                left: -260px;
+                top: 0;
+                bottom: 0;
+                transition: all 0.3s;
+                z-index: 100;
+            }
+            
+            .sidebar.active {
+                left: 0;
+            }
+            
+            .overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 90;
+            }
+            
+            .overlay.active {
+                display: block;
+            }
+        }
+        
+        .card {
+            transition: transform 0.2s, box-shadow 0.2s;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        
+        .btn {
+            transition: all 0.2s;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #2563eb, #1e40af);
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #1e40af, #2563eb);
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #475569, #334155);
+        }
+        
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, #334155, #475569);
+            transform: translateY(-2px);
+        }
+        
+        .form-control {
+            border-radius: 8px;
+            transition: all 0.2s;
+            border: 1px solid #cbd5e1;
+        }
+        
+        .form-control:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        }
+        
+        .stat-card {
+            border-left: 4px solid #2563eb;
+        }
+        
+        .mobile-menu-btn {
+            display: none;
+        }
+        
+        @media (max-width: 768px) {
+            .mobile-menu-btn {
+                display: block;
+            }
+        }
+        
+        .request-card {
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .request-card.pending {
+            border-left-color: #f59e0b;
+        }
+        
+        .request-card.approved {
+            border-left-color: #10b981;
+        }
+        
+        .request-card.rejected {
+            border-left-color: #ef4444;
+        }
+    </style>
 </head>
-<body class="bg-gray-100 font-sans">
-    <header class="bg-primary text-white text-center py-3">
-        <div class="flex justify-center items-center">
-            <img src="{{ url_for('static', filename='GovtWallah.png') }}" alt="GovtWallah Logo" style="height: 50px;">
-        </div>
-        <h1 class="text-2xl font-bold text-blue-800">Discount Management System</h1>
-        <p class="text-sm text-black">Approval Level: {{ approver_level }}</p>
-    </header>
-    
-    <nav class="bg-blue-600 p-4">
-        <div class="container mx-auto flex justify-between">
-            <a href="/" class="text-white text-lg font-bold">Discount Management</a>
-            <div>
-                {% if 'logged_in_email' in session %}
-                    <span class="text-white mr-4">{{ session['logged_in_email'] }}</span>
-                    <a href="/logout" class="text-white">Logout</a>
-                {% else %}
-                    <a href="/login" class="text-white">Login</a>
-                {% endif %}
+<body>
+    <!-- Dashboard Layout -->
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <div class="sidebar bg-dark text-white">
+            <div class="p-6 border-b border-gray-700">
+                <div class="flex items-center justify-center mb-6">
+                    <img src="https://cdn.pwskills.com/assets/gw-logo-light.png" alt="GovtWallah Logo" class="h-10">
+                </div>
+                <div class="text-center">
+                    <div class="bg-gray-200 border-2 border-dashed rounded-xl w-16 h-16 mx-auto mb-3"></div>
+                    <h3 class="font-semibold text-lg">{{ session.get('logged_in_email', 'Guest') }}</h3>
+                    <p class="text-gray-400 text-sm">{{ session.get('approver_level', 'User') }}</p>
+                </div>
+            </div>
+            
+            <nav class="py-4">
+                <ul>
+                    <li>
+                        <a href="/" class="flex items-center px-6 py-3 text-gray-300 hover:bg-secondary hover:text-white">
+                            <i class="fas fa-home mr-3"></i>
+                            Dashboard
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/request_discount" class="flex items-center px-6 py-3 text-gray-300 hover:bg-secondary hover:text-white">
+                            <i class="fas fa-percent mr-3"></i>
+                            Discount Requests
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/approve_request" class="flex items-center px-6 py-3 bg-secondary text-white">
+                            <i class="fas fa-check-circle mr-3"></i>
+                            Approve Requests
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="flex items-center px-6 py-3 text-gray-300 hover:bg-secondary hover:text-white">
+                            <i class="fas fa-chart-bar mr-3"></i>
+                            Analytics
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" class="flex items-center px-6 py-3 text-gray-300 hover:bg-secondary hover:text-white">
+                            <i class="fas fa-cog mr-3"></i>
+                            Settings
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            
+            <div class="absolute bottom-0 left-0 right-0 p-6 border-t border-gray-700">
+                <a href="/logout" class="flex items-center text-gray-300 hover:text-white">
+                    <i class="fas fa-sign-out-alt mr-3"></i>
+                    Logout
+                </a>
             </div>
         </div>
-    </nav>
-    
-    <div class="container mx-auto p-4">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="bg-{{ 'green' if category == 'success' else 'red' }}-100 border-{{ 'green' if category == 'success' else 'red' }}-400 text-{{ 'green' if category == 'success' else 'red' }}-700 px-4 py-3 rounded relative mb-4" role="alert">
-                        <span class="block sm:inline">{{ message }}</span>
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
         
-        {% block content %}{% endblock %}
+        <!-- Main Content -->
+        <div class="main-content bg-light">
+            <!-- Top Bar -->
+            <div class="bg-white shadow-sm py-4 px-6 flex items-center justify-between">
+                <div class="flex items-center">
+                    <button class="mobile-menu-btn text-gray-700 mr-4">
+                        <i class="fas fa-bars text-xl"></i>
+                    </button>
+                    <h1 class="text-xl font-bold text-gray-800">Approve Discount Requests</h1>
+                </div>
+                
+                <div class="flex items-center space-x-4">
+                    <div class="relative">
+                        <button class="text-gray-600 hover:text-primary">
+                            <i class="fas fa-bell text-xl"></i>
+                        </button>
+                        <span class="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full"></span>
+                    </div>
+                    
+                    <div class="flex items-center">
+                        <div class="bg-gray-200 border-2 border-dashed rounded-xl w-8 h-8"></div>
+                        <span class="ml-2 text-gray-700 font-medium">{{ session.get('logged_in_email', 'Guest') }}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Page Content -->
+            <div class="p-6">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+        
+        <!-- Mobile overlay for sidebar -->
+        <div class="overlay"></div>
     </div>
+
+    <script>
+        // Mobile menu toggle
+        document.querySelector('.mobile-menu-btn').addEventListener('click', function() {
+            document.querySelector('.sidebar').classList.toggle('active');
+            document.querySelector('.overlay').classList.toggle('active');
+        });
+        
+        // Close sidebar when clicking overlay
+        document.querySelector('.overlay').addEventListener('click', function() {
+            document.querySelector('.sidebar').classList.remove('active');
+            this.classList.remove('active');
+        });
+    </script>
 </body>
 </html>
