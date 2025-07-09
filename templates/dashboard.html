@@ -123,7 +123,7 @@
             <!-- Top Bar -->
             <div class="bg-white shadow-sm py-4 px-6 flex items-center justify-between">
                 <div class="flex items-center">
-                    <h1 class="text-xl font-bold text-gray-800">Discount Management Dashboard</h1>
+                    <h1 class="text-xl font-bold text-gray-800">{% block title %}Discount Management Dashboard{% endblock %}</h1>
                 </div>
                 
                 <div class="flex items-center space-x-4">
@@ -141,6 +141,7 @@
                 </div>
             </div>
             
+            {% block content %}
             <!-- Stats Cards -->
             <div class="p-6 grid grid-cols-1 md:grid-cols-4 gap-6">
                 <div class="stat-card bg-white p-5 rounded-lg shadow-sm">
@@ -231,6 +232,7 @@
                     </div>
                 </div>
             </div>
+            {% endblock %}
         </div>
     </div>
 

@@ -405,12 +405,10 @@ def approve_request():
 # Add new routes for redesigned UI
 def get_dashboard_stats():
     client = get_bigquery_client()
-    total_requests = pending_requests = approved_requests = rejected_requests = 0
-    recent_requests = []
     try:
         # Get stats
         stats_query = f"""
-            SELECT 
+            SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending,
                 SUM(CASE WHEN status LIKE 'APPROVED%' THEN 1 ELSE 0 END) as approved,
@@ -418,10 +416,10 @@ def get_dashboard_stats():
             FROM `{project_id}.{dataset_id}.discount_requests`
         """
         stats_result = list(client.query(stats_query).result())[0]
-        total_requests = stats_result['total'] or 0
-        pending_requests = stats_result['pending'] or 0
-        approved_requests = stats_result['approved'] or 0
-        rejected_requests = stats_result['rejected'] or 0
+        total = stats_result['total'] or 0
+        pending = stats_result['pending'] or 0
+        approved = stats_result['approved'] or 0
+        rejected = stats_result['rejected'] or 0
         # Get recent requests
         recent_query = f"""
             SELECT enquiry_no, student_name, branch_name, status, mrp, discounted_fees, net_discount
@@ -429,10 +427,14 @@ def get_dashboard_stats():
             ORDER BY created_at DESC
             LIMIT 5
         """
-        recent_requests = list(client.query(recent_query).result())
+        recent = list(client.query(recent_query).result())
+        return total, pending, approved, rejected, recent
     except Exception as e:
-        logger.error(f"Error fetching dashboard stats: {e}")
-    return total_requests, pending_requests, approved_requests, rejected_requests, recent_requests
+        if 'Access Denied' in str(e):
+            logger.warning(f"Skipping dashboard stats due to permission issue: {e}")
+        else:
+            logger.error(f"Error fetching dashboard stats: {e}")
+        return 0, 0, 0, 0, []
 
 @app.route('/dashboard')
 def dashboard():
@@ -514,6 +516,22 @@ try:
     logger.info(f"GOOGLE_APPLICATION_CREDENTIALS set to: {temp_credentials_path}")
 except Exception as e:
     logger.error(f"Failed to retrieve credentials from Secret Manager: {e}")
+
+# Make stats available in all templates
+@app.context_processor
+def inject_dashboard_stats():
+    try:
+        total_requests, pending_requests, approved_requests, rejected_requests, recent_requests = get_dashboard_stats()
+    except Exception:
+        total_requests = pending_requests = approved_requests = rejected_requests = 0
+        recent_requests = []
+    return {
+        'total_requests': total_requests,
+        'pending_requests': pending_requests,
+        'approved_requests': approved_requests,
+        'rejected_requests': rejected_requests,
+        'recent_requests': recent_requests
+    }
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORT)
