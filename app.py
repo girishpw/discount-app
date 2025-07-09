@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
+PORT = int(os.environ.get("PORT", 8080))
+
 # Replace hardcoded sensitive information with environment variables
 EMAIL_SENDER = os.getenv('EMAIL_SENDER', 'girish.chandra@pw.live')
 EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'EcoTiger#0705')
@@ -29,25 +31,26 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY', 'flask_secret_key')
 if not os.getenv('EMAIL_SENDER') or not os.getenv('EMAIL_PASSWORD') or not os.getenv('FLASK_SECRET_KEY'):
     logger.warning("Some environment variables are missing. Default values will be used.")
 
-# Add checks for all required environment variables
-required_env_vars = ['EMAIL_SENDER', 'EMAIL_PASSWORD', 'FLASK_SECRET_KEY', 'GOOGLE_APPLICATION_CREDENTIALS']
+# Update required variables
+required_env_vars = ['EMAIL_SENDER', 'EMAIL_PASSWORD', 'FLASK_SECRET_KEY']
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
 if missing_vars:
     logger.warning(f"Missing required environment variables: {', '.join(missing_vars)}")
+    logger.warning("Application may not function properly")
 
 # Initialize BigQuery client
 project_id = 'gewportal2025'
 dataset_id = 'discount_management'
 client = None
 
+# Update BigQuery client initialization
 def get_bigquery_client():
     global client
     if client is None:
         try:
-            from google.auth import default
-            credentials, project = default()
-            client = bigquery.Client(credentials=credentials, project=project)
-            logger.info(f"BigQuery client initialized with project: {project}")
+            # Use Application Default Credentials in production
+            client = bigquery.Client(project=project_id)
+            logger.info(f"BigQuery client initialized with project: {project_id}")
         except Exception as e:
             logger.error(f"Error initializing BigQuery client: {e}")
             raise
@@ -62,7 +65,7 @@ def login():
 
 @app.route('/logout')
 def logout():
-    session.clear()
+    session.pop('logged_in_email', None)
     return redirect(url_for('index'))
 
 def send_email(to_email, subject, body):
@@ -85,9 +88,9 @@ def index():
     session['approver_level'] = session.get('approver_level', 'Unknown')
     return render_template('index.html')
 
-@app.route('/health')
-def health():
-    return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat()})
+@app.route('/_health')
+def health_check():
+    return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat(),'port': PORT}), 200
 
 @app.route('/request_discount', methods=['GET', 'POST'])
 def request_discount():
@@ -207,6 +210,15 @@ def request_discount():
             return redirect(url_for('request_discount'))
 
     return render_template('request_discount.html', approver_level=session.get('approver_level', 'Unknown'))
+
+# Update session middleware
+@app.before_request
+def track_logged_in_user():
+    # Check if email exists in session before logging
+    if 'logged_in_email' in session:
+        logger.info(f"Logged in email: {session['logged_in_email']}")
+    else:
+        logger.info("No logged-in user found in session")
 
 # Replace hardcoded email with dynamic user tracking logic
 @app.before_request
@@ -400,4 +412,4 @@ logger.info(f"GOOGLE_CLOUD_PROJECT set to: {os.environ.get('GOOGLE_CLOUD_PROJECT
 logger.info(f"GOOGLE_APPLICATION_CREDENTIALS: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    app.run(host='0.0.0.0', port=PORT)

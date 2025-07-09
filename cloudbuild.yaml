@@ -1,16 +1,23 @@
 steps:
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['build', '-t', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app', '.']
+  args: ['build', '-t', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-app', '.']
+  
 - name: 'gcr.io/cloud-builders/docker'
-  args: ['push', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app']
+  args: ['push', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-app']
+  
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: 'gcloud'
   args:
   - 'run'
   - 'deploy'
-  - 'discount-rquest-app'
-  - '--image=asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-rquest-app'
+  - 'discount-app'
+  - '--image=asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-app'
   - '--platform=managed'
   - '--region=asia-south2'
   - '--allow-unauthenticated'
   - '--service-account=classmanager-sa@gewportal2025.iam.gserviceaccount.com'
+  - '--port=8080'
+  - '--set-env-vars=PORT=8080'
+  - '--set-env-vars=FLASK_SECRET_KEY=your_strong_secret_here'
+  - '--set-env-vars=EMAIL_SENDER=your@email.com'
+  - '--set-env-vars=EMAIL_PASSWORD=your_email_password'
