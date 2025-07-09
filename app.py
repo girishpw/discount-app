@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-PORT = int(os.environ.get("PORT", 8080))
+PORT = int(os.environ.get("PORT", 5000))
 
 # Add logging for missing environment variables
 if not os.getenv('EMAIL_SENDER') or not os.getenv('EMAIL_PASSWORD') or not os.getenv('FLASK_SECRET_KEY'):
