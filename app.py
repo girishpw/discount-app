@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # Replace hardcoded sensitive information with environment variables
-EMAIL_SENDER = os.getenv('EMAIL_SENDER', 'default_sender@example.com')
-EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'default_password')
+EMAIL_SENDER = os.getenv('EMAIL_SENDER', 'girish.chandra@pw.live')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'EcoTiger#0705')
 SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
 SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
 
 # Update app secret key to use environment variable
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'default_secret_key')
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'flask_secret_key')
 
 # Add logging for missing environment variables
 if not os.getenv('EMAIL_SENDER') or not os.getenv('EMAIL_PASSWORD') or not os.getenv('FLASK_SECRET_KEY'):
@@ -33,7 +33,6 @@ required_env_vars = ['EMAIL_SENDER', 'EMAIL_PASSWORD', 'FLASK_SECRET_KEY', 'GOOG
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
 if missing_vars:
     logger.warning(f"Missing required environment variables: {', '.join(missing_vars)}")
-    flash(f"Missing required environment variables: {', '.join(missing_vars)}", "error")
 
 # Initialize BigQuery client
 project_id = 'gewportal2025'
@@ -199,7 +198,7 @@ def request_discount():
 @app.before_request
 def track_logged_in_user():
     # Simulate fetching logged-in user email dynamically
-    session['logged_in_email'] = request.headers.get('X-User-Email', 'unknown@example.com')
+    # session['logged_in_email'] = request.headers.get('X-User-Email', 'unknown@example.com')
     logger.info(f"Session updated with logged-in email: {session['logged_in_email']}")
 
 @app.route('/approve_request', methods=['GET', 'POST'])
