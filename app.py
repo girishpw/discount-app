@@ -200,9 +200,9 @@ def approve_request():
         try:
             request_id = request.form['request_id']
             action = request.form['action']
-            new_discounted_fees = float(request.form.get('discounted_fees', 0))
+            approved_amount_value = request.form.get('discounted_fees')
 
-            logger.info(f"Approve request received: request_id={request_id}, action={action}, logged_in_email={logged_in_email}, new_discounted_fees={new_discounted_fees}")
+            logger.info(f"Approve request received: request_id={request_id}, action={action}, logged_in_email={logged_in_email}, approved_amount_value={approved_amount_value}")
 
             # Verify approver
             query = f"""
@@ -247,8 +247,23 @@ def approve_request():
 
             logger.info(f"Discount request details: {discount_request}")
 
-            if approver['level'] == 'L1' and approver['branch_name'] != discount_request['branch_name']:
-                logger.warning(f"Approver not authorized for branch: approver_branch={approver['branch_name']}, request_branch={discount_request['branch_name']}")
+            # Validate approved amount
+            if action == 'APPROVE' and (not approved_amount_value or not approved_amount_value.strip()):
+                logger.warning("Approved amount is required and cannot be empty for approval.")
+                flash("Approved amount is required and cannot be empty for approval.", "error")
+                return redirect(url_for('approve_request'))
+
+            try:
+                new_discounted_fees = float(approved_amount_value)
+            except ValueError as e:
+                logger.error(f"Invalid approved amount value: {e}")
+                flash("Invalid approved amount value provided.", "error")
+                return redirect(url_for('approve_request'))
+
+            # Handle branch authorization
+            approver_branches = approver['branch_name'].split(',')
+            if 'All' not in approver_branches and discount_request['branch_name'] not in approver_branches:
+                logger.warning(f"Approver not authorized for branch: approver_branches={approver_branches}, request_branch={discount_request['branch_name']}")
                 flash('Not authorized to approve this branch', 'error')
                 return redirect(url_for('approve_request'))
 
