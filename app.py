@@ -15,17 +15,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'flask_secret_key')  # Ensure this is set
+
 PORT = int(os.environ.get("PORT", 8080))
-
-# Replace hardcoded sensitive information with environment variables
-EMAIL_SENDER = os.getenv('EMAIL_SENDER', 'girish.chandra@pw.live')
-EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'EcoTiger#0705')
-SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
-
-# Update app secret key to use environment variable
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'flask_secret_key')
 
 # Add logging for missing environment variables
 if not os.getenv('EMAIL_SENDER') or not os.getenv('EMAIL_PASSWORD') or not os.getenv('FLASK_SECRET_KEY'):
