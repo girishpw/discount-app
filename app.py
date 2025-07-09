@@ -1,6 +1,6 @@
 import os
 import logging
-from flask import Flask, request, render_template, redirect, url_for, flash, jsonify
+from flask import Flask, request, render_template, redirect, url_for, flash, jsonify, session
 from google.cloud import bigquery
 from google.cloud import secretmanager
 from google.oauth2 import service_account
@@ -115,7 +115,63 @@ def request_discount():
             else:
                 logger.error("BigQuery client is unavailable. Skipping authorization check.")
 
-            # TODO: Insert data into BigQuery table
+            # Check for duplicate submission
+            try:
+                query = f"""
+                    SELECT enquiry_no FROM `{project_id}.{dataset_id}.discount_requests`
+                    WHERE enquiry_no = @enquiry_no AND requester_email = @requester_email
+                    LIMIT 1
+                """
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("enquiry_no", "STRING", data['enquiry_no']),
+                        bigquery.ScalarQueryParameter("requester_email", "STRING", data['requester_email'])
+                    ]
+                )
+                query_job = client.query(query, job_config=job_config)
+                result = list(query_job.result())
+
+                if result:
+                    logger.warning(f"Duplicate submission detected for enquiry_no={data['enquiry_no']} and requester_email={data['requester_email']}")
+                    flash("Duplicate submission detected. Please check your previous requests.", "error")
+                    return redirect(url_for('request_discount'))
+            except Exception as e:
+                logger.error(f"Error checking for duplicate submission: {e}")
+
+            # Insert data into BigQuery table
+            try:
+                query = f"""
+                    INSERT INTO `{project_id}.{dataset_id}.discount_requests`
+                    (enquiry_no, student_name, mobile_no, card_name, mrp, discounted_fees, net_discount, reason, remarks, requester_email, requester_name, branch_name, status, created_at, l1_approver, l2_approver)
+                    VALUES (@enquiry_no, @student_name, @mobile_no, @card_name, @mrp, @discounted_fees, @net_discount, @reason, @remarks, @requester_email, @requester_name, @branch_name, @status, @created_at, @l1_approver, @l2_approver)
+                """
+                job_config = bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("enquiry_no", "STRING", data['enquiry_no']),
+                        bigquery.ScalarQueryParameter("student_name", "STRING", data['student_name']),
+                        bigquery.ScalarQueryParameter("mobile_no", "STRING", data['mobile_no']),
+                        bigquery.ScalarQueryParameter("card_name", "STRING", data['card_name']),
+                        bigquery.ScalarQueryParameter("mrp", "FLOAT", data['mrp']),
+                        bigquery.ScalarQueryParameter("discounted_fees", "FLOAT", data['discounted_fees']),
+                        bigquery.ScalarQueryParameter("net_discount", "FLOAT", data['net_discount']),
+                        bigquery.ScalarQueryParameter("reason", "STRING", data['reason']),
+                        bigquery.ScalarQueryParameter("remarks", "STRING", data['remarks']),
+                        bigquery.ScalarQueryParameter("requester_email", "STRING", data['requester_email']),
+                        bigquery.ScalarQueryParameter("requester_name", "STRING", data['requester_name']),
+                        bigquery.ScalarQueryParameter("branch_name", "STRING", data['branch_name']),
+                        bigquery.ScalarQueryParameter("status", "STRING", data['status']),
+                        bigquery.ScalarQueryParameter("created_at", "STRING", data['created_at']),
+                        bigquery.ScalarQueryParameter("l1_approver", "STRING", data['l1_approver']),
+                        bigquery.ScalarQueryParameter("l2_approver", "STRING", data['l2_approver'])
+                    ]
+                )
+                client.query(query, job_config=job_config)
+                logger.info("Data inserted into discount_requests table successfully.")
+            except Exception as e:
+                logger.error(f"Error inserting data into discount_requests table: {e}")
+                flash("An error occurred while submitting your request. Please try again later.", "error")
+                return redirect(url_for('request_discount'))
+
             flash("Discount request submitted successfully.", "success")
             return redirect(url_for('index'))
 
@@ -126,38 +182,50 @@ def request_discount():
 
     return render_template('request_discount.html')
 
+@app.before_request
+def track_logged_in_user():
+    # Simulate tracking logged-in user email
+    session['logged_in_email'] = 'user@example.com'  # Replace with actual logic to fetch logged-in user email
+
 @app.route('/approve_request', methods=['GET', 'POST'])
 def approve_request():
     client = get_bigquery_client()
+
+    logged_in_email = session.get('logged_in_email')
+    if not logged_in_email:
+        flash('You must be logged in to approve requests.', 'error')
+        return redirect(url_for('index'))
 
     if request.method == 'POST':
         try:
             request_id = request.form['request_id']
             action = request.form['action']
-            approver_email = request.form['approver_email']
             new_discounted_fees = float(request.form.get('discounted_fees', 0))
 
-            logger.info(f"Approve request received: request_id={request_id}, action={action}, approver_email={approver_email}, new_discounted_fees={new_discounted_fees}")
+            logger.info(f"Approve request received: request_id={request_id}, action={action}, logged_in_email={logged_in_email}, new_discounted_fees={new_discounted_fees}")
 
             # Verify approver
             query = f"""
                 SELECT level, branch_name FROM `{project_id}.{dataset_id}.approvers`
-                WHERE email = @email
+                WHERE email = @logged_in_email
             """
             job_config = bigquery.QueryJobConfig(
                 query_parameters=[
-                    bigquery.ScalarQueryParameter('email', 'STRING', approver_email)
+                    bigquery.ScalarQueryParameter('logged_in_email', 'STRING', logged_in_email)
                 ]
             )
             result = client.query(query, job_config=job_config).result()
             approver = list(result)[0] if list(result) else None
 
             if not approver:
-                logger.warning(f"Unauthorized approver: {approver_email}")
+                logger.warning(f"Unauthorized approver: {logged_in_email}")
                 flash('Unauthorized approver', 'error')
                 return redirect(url_for('approve_request'))
 
             logger.info(f"Approver verified: {approver}")
+
+            # Display approver level at the top
+            flash(f"Logged in as {logged_in_email} (Level: {approver['level']})", 'info')
 
             # Get request details
             query = f"""
@@ -194,7 +262,7 @@ def approve_request():
             elif action == 'REJECT':
                 update_data['status'] = 'REJECTED'
 
-            update_data[f"{approver['level'].lower()}_approver"] = approver_email
+            update_data[f"{approver['level'].lower()}_approver"] = logged_in_email
 
             # Update request in BigQuery
             query = f"""
@@ -243,8 +311,9 @@ def approve_request():
         query = f"""
             SELECT * FROM `{project_id}.{dataset_id}.discount_requests`
             WHERE status IN ('PENDING', 'APPROVED_L1')
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY enquiry_no ORDER BY created_at DESC) = 1
         """
-        logger.info(f"Executing query to fetch pending requests: {query}")
+        logger.info(f"Executing refined query to fetch pending requests: {query}")
         result = client.query(query).result()
         requests = list(result)
         logger.info(f"Pending requests fetched successfully: {requests}")

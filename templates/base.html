@@ -7,6 +7,13 @@
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-100 font-sans">
+    <header class="bg-primary text-white text-center py-3">
+        <div class="flex justify-center items-center">
+            <img src="{{ url_for('static', filename='GovtWallah.png') }}" alt="GovtWallah Logo" style="height: 50px;">
+        </div>
+        <h1 class="text-2xl font-bold">Discount Management System</h1>
+    </header>
+    
     <nav class="bg-blue-600 p-4">
         <div class="container mx-auto">
             <a href="/" class="text-white text-lg font-bold">Discount Management</a>
