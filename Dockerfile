@@ -17,7 +17,7 @@ RUN which gunicorn && gunicorn --version && echo "PATH: $PATH"
 # Copy application code
 COPY . .
 
-EXPOSE 8080
+EXPOSE 5000
 
 # Use full path to gunicorn as backup
-CMD exec /usr/local/bin/gunicorn --bind 0.0.0.0:${PORT:-8080} --workers 1 --threads 8 --timeout 0 app:app
+CMD exec /usr/local/bin/gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --threads 8 --timeout 0 app:app

@@ -15,8 +15,19 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-app.secret_key = 'a05e2129e96e25091f8db85a54fe8b229fbc22bcdd2de6cfedb3a78369d434fd'
- 
+# Replace hardcoded sensitive information with environment variables
+EMAIL_SENDER = os.getenv('EMAIL_SENDER', 'default_sender@example.com')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'default_password')
+SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
+
+# Update app secret key to use environment variable
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'default_secret_key')
+
+# Add logging for missing environment variables
+if not os.getenv('EMAIL_SENDER') or not os.getenv('EMAIL_PASSWORD') or not os.getenv('FLASK_SECRET_KEY'):
+    logger.warning("Some environment variables are missing. Default values will be used.")
+
 # Initialize BigQuery client
 project_id = 'gewportal2025'
 dataset_id = 'discount_management'
@@ -34,12 +45,6 @@ def get_bigquery_client():
             logger.error(f"Error initializing BigQuery client: {e}")
             raise
     return client
-
-# Email configuration
-EMAIL_SENDER = 'girish.chandra@pw.live'
-EMAIL_PASSWORD = 'EcoTiger#0705'
-SMTP_SERVER = 'smtp.gmail.com'
-SMTP_PORT = 587
 
 def send_email(to_email, subject, body):
     try:
