@@ -8,6 +8,7 @@ import smtplib
 from email.mime.text import MIMEText
 import json
 from datetime import datetime,timezone
+import traceback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -52,6 +53,18 @@ def get_bigquery_client():
             raise
     return client
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        session['logged_in_email'] = request.form['email']
+        return redirect(url_for('index'))
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('index'))
+
 def send_email(to_email, subject, body):
     try:
         msg = MIMEText(body)
@@ -69,6 +82,7 @@ def send_email(to_email, subject, body):
 
 @app.route('/')
 def index():
+    session['approver_level'] = session.get('approver_level', 'Unknown')
     return render_template('index.html')
 
 @app.route('/health')
@@ -203,6 +217,9 @@ def track_logged_in_user():
 
 @app.route('/approve_request', methods=['GET', 'POST'])
 def approve_request():
+    if 'logged_in_email' not in session:
+        return redirect(url_for('login'))
+    
     client = get_bigquery_client()
 
     logged_in_email = session.get('logged_in_email')
@@ -221,8 +238,11 @@ def approve_request():
             # Verify approver
             logger.info(f"Logged in email: {logged_in_email}")
             query = f"""
-                SELECT level, branch_name FROM `{project_id}.{dataset_id}.approvers`
-                WHERE LOWER(email) = LOWER(@logged_in_email)
+                SELECT * FROM (
+                    SELECT *, ROW_NUMBER() OVER (PARTITION BY enquiry_no ORDER BY created_at DESC) as rn 
+                    FROM `{project_id}.{dataset_id}.discount_requests`
+                    WHERE status IN ('PENDING', 'APPROVED_L1')
+                ) WHERE rn = 1
             """
             logger.info(f"Executing approver query: {query}")
             job_config = bigquery.QueryJobConfig(
@@ -344,9 +364,12 @@ def approve_request():
     try:
         # Get pending requests
         query = f"""
-            SELECT * FROM `{project_id}.{dataset_id}.discount_requests`
-            WHERE status IN ('PENDING', 'APPROVED_L1')
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY enquiry_no ORDER BY created_at DESC) = 1
+            SELECT * FROM (
+                SELECT *, ROW_NUMBER() OVER (PARTITION BY enquiry_no ORDER BY created_at DESC) as rn 
+                FROM `{project_id}.{dataset_id}.discount_requests`
+                WHERE status IN ('PENDING', 'APPROVED_L1')
+            ) 
+            WHERE rn = 1
         """
         logger.info(f"Executing refined query to fetch pending requests: {query}")
         result = client.query(query).result()

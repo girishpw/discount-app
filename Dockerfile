@@ -1,23 +1,17 @@
-# Dockerfile for Discount App - Updated: 2025-07-08 12:20 UTC
+# Add NodeJS and build Tailwind
+FROM node:18-slim as tailwind-builder
+
+WORKDIR /app
+COPY package.json .
+RUN npm install
+COPY src/tailwind.css ./src/
+RUN npm run build-css
+
+# Python build
 FROM python:3.9-slim
 
 WORKDIR /app
+COPY --from=tailwind-builder /app/static/css/tailwind.css ./static/css/tailwind.css
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-
-# Install Python dependencies with explicit gunicorn
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir gunicorn==21.2.0
-
-# Verify gunicorn is installed and show PATH
-RUN which gunicorn && gunicorn --version && echo "PATH: $PATH"
-
-# Copy application code
+# Rest of existing Dockerfile...
 COPY . .
-
-EXPOSE 5000
-
-# Use full path to gunicorn as backup
-CMD exec /usr/local/bin/gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --threads 8 --timeout 0 app:app

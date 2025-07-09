@@ -4,8 +4,21 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Discount Management System</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Remove CDN and use built CSS -->
+    <link href="{{ url_for('static', filename='css/tailwind.css') }}" rel="stylesheet">
 </head>
+<nav class="bg-blue-600 p-4">
+    <div class="container mx-auto flex justify-between">
+        <a href="/" class="text-white text-lg font-bold">Discount Management</a>
+        <div>
+            {% if 'logged_in_email' in session %}
+                <a href="/logout" class="text-white">Logout</a>
+            {% else %}
+                <a href="/login" class="text-white">Login</a>
+            {% endif %}
+        </div>
+    </div>
+</nav>
 <body class="bg-gray-100 font-sans">
     <header class="bg-primary text-white text-center py-3">
         <div class="flex justify-center items-center">
