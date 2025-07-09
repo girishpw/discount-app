@@ -9,8 +9,8 @@
         <div class="bg-white p-4 rounded-lg shadow">
             <h3 class="text-lg font-semibold">{{ req.student_name }} - {{ req.enquiry_no }}</h3>
             <p>Branch: {{ req.branch_name }}</p>
-            <p>MRP: ${{ req.mrp }}</p>
-            <p>Requested Discount: ${{ req.net_discount }}</p>
+            <p>MRP: ₹{{ req.mrp }}</p>
+            <p>Requested Discount: ₹{{ req.net_discount }}</p>
             <p>Status: {{ req.status }}</p>
             
             <form method="POST" class="mt-4 space-y-2">

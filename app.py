@@ -95,7 +95,7 @@ def request_discount():
             if client:
                 query = f"""
                     SELECT * FROM `{project_id}.{dataset_id}.authorized_persons`
-                    WHERE email = @email AND branch_name = @branch_name
+                    WHERE email = @email AND @branch_name IN UNNEST(branch_name)
                 """
                 job_config = bigquery.QueryJobConfig(
                     query_parameters=[
@@ -261,7 +261,7 @@ def approve_request():
                 return redirect(url_for('approve_request'))
 
             # Handle branch authorization
-            approver_branches = approver['branch_name'].split(',')
+            approver_branches = approver['branch_name']
             if 'All' not in approver_branches and discount_request['branch_name'] not in approver_branches:
                 logger.warning(f"Approver not authorized for branch: approver_branches={approver_branches}, request_branch={discount_request['branch_name']}")
                 flash('Not authorized to approve this branch', 'error')
@@ -357,4 +357,4 @@ logger.info(f"GOOGLE_CLOUD_PROJECT set to: {os.environ.get('GOOGLE_CLOUD_PROJECT
 logger.info(f"GOOGLE_APPLICATION_CREDENTIALS: {os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')}")
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
