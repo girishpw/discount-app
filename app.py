@@ -28,6 +28,13 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY', 'default_secret_key')
 if not os.getenv('EMAIL_SENDER') or not os.getenv('EMAIL_PASSWORD') or not os.getenv('FLASK_SECRET_KEY'):
     logger.warning("Some environment variables are missing. Default values will be used.")
 
+# Add checks for all required environment variables
+required_env_vars = ['EMAIL_SENDER', 'EMAIL_PASSWORD', 'FLASK_SECRET_KEY', 'GOOGLE_APPLICATION_CREDENTIALS']
+missing_vars = [var for var in required_env_vars if not os.getenv(var)]
+if missing_vars:
+    logger.warning(f"Missing required environment variables: {', '.join(missing_vars)}")
+    flash(f"Missing required environment variables: {', '.join(missing_vars)}", "error")
+
 # Initialize BigQuery client
 project_id = 'gewportal2025'
 dataset_id = 'discount_management'
@@ -98,6 +105,7 @@ def request_discount():
             # Verify authorized requester
             client = get_bigquery_client()
             if client:
+                # Update the query to pass branch_name as an array
                 query = f"""
                     SELECT * FROM `{project_id}.{dataset_id}.authorized_persons`
                     WHERE email = @email AND @branch_name IN UNNEST(branch_name)
@@ -105,7 +113,7 @@ def request_discount():
                 job_config = bigquery.QueryJobConfig(
                     query_parameters=[
                         bigquery.ScalarQueryParameter("email", "STRING", data['requester_email']),
-                        bigquery.ScalarQueryParameter("branch_name", "STRING", data['branch_name'])
+                        bigquery.ArrayQueryParameter("branch_name", "STRING", [data['branch_name']])
                     ]
                 )
                 query_job = client.query(query, job_config=job_config)
@@ -187,10 +195,11 @@ def request_discount():
 
     return render_template('request_discount.html', approver_level=session.get('approver_level', 'Unknown'))
 
+# Replace hardcoded email with dynamic user tracking logic
 @app.before_request
 def track_logged_in_user():
-    # Simulate tracking logged-in user email
-    session['logged_in_email'] = 'girish.chandra@pw.live'  # Replace with actual logic to fetch logged-in user email
+    # Simulate fetching logged-in user email dynamically
+    session['logged_in_email'] = request.headers.get('X-User-Email', 'unknown@example.com')
     logger.info(f"Session updated with logged-in email: {session['logged_in_email']}")
 
 @app.route('/approve_request', methods=['GET', 'POST'])
