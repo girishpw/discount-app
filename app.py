@@ -173,19 +173,20 @@ def request_discount():
                 return redirect(url_for('request_discount'))
 
             flash("Discount request submitted successfully.", "success")
-            return redirect(url_for('index'))
+            return redirect(url_for('request_discount'))
 
         except Exception as e:
             logger.error(f"Error processing discount request: {e}")
             flash("An error occurred while processing your request. Please try again later.", "error")
             return redirect(url_for('request_discount'))
 
-    return render_template('request_discount.html')
+    return render_template('request_discount.html', approver_level=session.get('approver_level', 'Unknown'))
 
 @app.before_request
 def track_logged_in_user():
     # Simulate tracking logged-in user email
-    session['logged_in_email'] = 'user@example.com'  # Replace with actual logic to fetch logged-in user email
+    session['logged_in_email'] = 'girish.chandra@pw.live'  # Replace with actual logic to fetch logged-in user email
+    logger.info(f"Session updated with logged-in email: {session['logged_in_email']}")
 
 @app.route('/approve_request', methods=['GET', 'POST'])
 def approve_request():
@@ -200,22 +201,24 @@ def approve_request():
         try:
             request_id = request.form['request_id']
             action = request.form['action']
-            approved_amount_value = request.form.get('discounted_fees')
+            approved_discount_value = request.form.get('discounted_fees')
 
-            logger.info(f"Approve request received: request_id={request_id}, action={action}, logged_in_email={logged_in_email}, approved_amount_value={approved_amount_value}")
+            logger.info(f"Approve request received: request_id={request_id}, action={action}, logged_in_email={logged_in_email}, approved_discount_value={approved_discount_value}")
 
             # Verify approver
+            logger.info(f"Logged in email: {logged_in_email}")
             query = f"""
                 SELECT level, branch_name FROM `{project_id}.{dataset_id}.approvers`
-                WHERE email = @logged_in_email
+                WHERE LOWER(email) = LOWER(@logged_in_email)
             """
+            logger.info(f"Executing approver query: {query}")
             job_config = bigquery.QueryJobConfig(
                 query_parameters=[
                     bigquery.ScalarQueryParameter('logged_in_email', 'STRING', logged_in_email)
                 ]
             )
-            result = client.query(query, job_config=job_config).result()
-            approver = list(result)[0] if list(result) else None
+            result = list(client.query(query, job_config=job_config).result())
+            approver = result[0] if result else None
 
             if not approver:
                 logger.warning(f"Unauthorized approver: {logged_in_email}")
@@ -223,6 +226,10 @@ def approve_request():
                 return redirect(url_for('approve_request'))
 
             logger.info(f"Approver verified: {approver}")
+
+            # Set the approver level in the session
+            session['approver_level'] = approver['level']
+            logger.info(f"Approver level set in session: {approver['level']}")
 
             # Display approver level at the top
             flash(f"Logged in as {logged_in_email} (Level: {approver['level']})", 'info')
@@ -238,7 +245,7 @@ def approve_request():
                 ]
             )
             result = client.query(query, job_config=job_config).result()
-            discount_request = list(result)[0] if list(result) else None
+            discount_request = list(result)[0] if result else None
 
             if not discount_request:
                 logger.warning(f"Discount request not found: enquiry_no={request_id}")
@@ -248,16 +255,16 @@ def approve_request():
             logger.info(f"Discount request details: {discount_request}")
 
             # Validate approved amount
-            if action == 'APPROVE' and (not approved_amount_value or not approved_amount_value.strip()):
-                logger.warning("Approved amount is required and cannot be empty for approval.")
-                flash("Approved amount is required and cannot be empty for approval.", "error")
+            if action == 'APPROVE' and (not approved_discount_value or not approved_discount_value.strip()):
+                logger.warning("Approved Discount is required and cannot be empty for approval.")
+                flash("Approved Discount is required and cannot be empty for approval.", "error")
                 return redirect(url_for('approve_request'))
 
             try:
-                new_discounted_fees = float(approved_amount_value)
+                new_discounted_fees = float(approved_discount_value)
             except ValueError as e:
-                logger.error(f"Invalid approved amount value: {e}")
-                flash("Invalid approved amount value provided.", "error")
+                logger.error(f"Invalid approved discount value: {e}")
+                flash("Invalid approved discount value provided.", "error")
                 return redirect(url_for('approve_request'))
 
             # Handle branch authorization
