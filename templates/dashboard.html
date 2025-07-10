@@ -190,20 +190,6 @@
                     </li>
                 </ul>
             </nav>
-            
-            <div class="absolute bottom-0 left-0 right-0 p-6">
-                {% if 'logged_in_email' in session %}
-                    <a href="{{ url_for('logout') }}" class="flex items-center text-white text-opacity-80 hover:text-white px-6 py-3 rounded-xl hover:bg-white hover:bg-opacity-10 transition">
-                        <i class="fas fa-sign-out-alt mr-3"></i>
-                        <span>Logout</span>
-                    </a>
-                {% else %}
-                    <a href="{{ url_for('login') }}" class="flex items-center text-white text-opacity-80 hover:text-white px-6 py-3 rounded-xl hover:bg-white hover:bg-opacity-10 transition">
-                        <i class="fas fa-sign-in-alt mr-3"></i>
-                        <span>Login</span>
-                    </a>
-                {% endif %}
-            </div>
         </div>
         
         <!-- Main Content -->
