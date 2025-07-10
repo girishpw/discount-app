@@ -9,7 +9,6 @@ import smtplib
 from email.mime.text import MIMEText
 import json
 from datetime import datetime,timezone
-from authlib.integrations.flask_client import OAuth
 from functools import wraps
 
 # Configure logging
@@ -43,37 +42,6 @@ if missing_vars:
 # Ensure proper session configuration
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
-
-# Google OAuth Configuration - Retrieve from Secret Manager
-def get_secret(secret_name):
-    """Retrieve secret from Google Secret Manager"""
-    try:
-        secret_client = secretmanager.SecretManagerServiceClient()
-        secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-        response = secret_client.access_secret_version(name=secret_path)
-        return response.payload.data.decode('UTF-8')
-    except Exception as e:
-        logger.error(f"Failed to retrieve secret {secret_name}: {e}")
-        return None
-
-# Get OAuth credentials from Secret Manager
-oauth_client_id = get_secret('oauth-client-id') or os.getenv('GOOGLE_OAUTH_CLIENT_ID')
-oauth_client_secret = get_secret('oauth-client-secret') or os.getenv('GOOGLE_OAUTH_CLIENT_SECRET')
-
-app.config['GOOGLE_OAUTH_CLIENT_ID'] = oauth_client_id
-app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = oauth_client_secret
-
-# Initialize OAuth
-oauth = OAuth(app)
-google_oauth = oauth.register(
-    name='google',
-    client_id=app.config['GOOGLE_OAUTH_CLIENT_ID'],
-    client_secret=app.config['GOOGLE_OAUTH_CLIENT_SECRET'],
-    server_metadata_url='https://accounts.google.com/.well-known/openid_configuration',
-    client_kwargs={
-        'scope': 'openid email profile'
-    }
-)
 
 # Initialize BigQuery client
 project_id = 'gewportal2025'
@@ -171,6 +139,31 @@ def get_authorized_person(email):
         return None
 
 
+def authenticate_user(email, password):
+    """Authenticate user with email and password"""
+    client = get_bigquery_client()
+    if not client:
+        return None
+    
+    try:
+        query = f"""
+            SELECT email, name, branch_name, approver_level, can_request_discount, password
+            FROM `{project_id}.{dataset_id}.authorized_persons`
+            WHERE email = @email AND password = @password AND is_active = true
+        """
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter('email', 'STRING', email),
+                bigquery.ScalarQueryParameter('password', 'STRING', password)
+            ]
+        )
+        result = list(client.query(query, job_config=job_config).result())
+        return result[0] if result else None
+    except Exception as e:
+        logger.error(f"Error authenticating user: {e}")
+        return None
+
+
 def get_branches():
     """Get unique branches from branch_cards_fees table"""
     client = get_bigquery_client()
@@ -247,12 +240,24 @@ def get_approvers_for_branch(branch_name, level):
         return []
     
     try:
+        # Get approvers who can handle this branch specifically OR handle all branches
+        # For L1: Raja Ray for Kolkata/Siliguri/Bhubaneshwar, Praduman for others
+        if level == 'L1':
+            if branch_name in ['Kolkata', 'Siliguri', 'Bhubaneshwar']:
+                approver_filter = "AND email = 'raja.ray@pw.live'"
+            else:
+                approver_filter = "AND email = 'praduman.shukla@pw.live'"
+        else:
+            # L2 approvers handle all branches
+            approver_filter = ""
+            
         query = f"""
             SELECT email, name
             FROM `{project_id}.{dataset_id}.authorized_persons`
-            WHERE branch_name = @branch_name 
+            WHERE (branch_name = @branch_name OR branch_name = 'ALL')
             AND approver_level = @level 
             AND is_active = true
+            {approver_filter}
         """
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
@@ -288,82 +293,27 @@ def send_notification_email(to_emails, subject, body):
         return False
 
 
-@app.route('/login')
+@app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Check if user is already authenticated via browser session or redirect to Google OAuth"""
+    """Password-based login for users"""
     # Check if user is already logged in
     if 'logged_in_email' in session:
         return redirect(url_for('dashboard'))
     
-    # Try to get user email from browser if possible (this would be set by domain admin)
-    # For now, we'll show the login page with Google OAuth option
-    return render_template('login.html')
-
-
-@app.route('/auth/google')
-def google_auth():
-    """Initiate Google OAuth login"""
-    redirect_uri = url_for('google_callback', _external=True)
-    return google_oauth.authorize_redirect(redirect_uri)
-
-
-@app.route('/auth/google/callback')
-def google_callback():
-    """Handle Google OAuth callback"""
-    try:
-        token = google_oauth.authorize_access_token()
-        user_info = token.get('userinfo')
-        
-        if not user_info:
-            flash('Failed to get user information from Google.', 'error')
-            return redirect(url_for('login'))
-        
-        email = user_info.get('email')
-        name = user_info.get('name')
-        
-        # Validate pw.live domain
-        if not validate_pw_email(email):
-            flash('Please use your official pw.live email address.', 'error')
-            return redirect(url_for('login'))
-        
-        # Check if user is authorized
-        auth_person = get_authorized_person(email)
-        if not auth_person:
-            flash('You are not authorized to access this system. Please contact administrator.', 'error')
-            return redirect(url_for('login'))
-        
-        # Set session data
-        session['logged_in_email'] = email
-        session['user_name'] = auth_person['name']
-        session['branch_name'] = auth_person['branch_name']
-        session['approver_level'] = auth_person['approver_level']
-        session['can_request_discount'] = auth_person['can_request_discount']
-        
-        flash(f'Welcome {auth_person["name"]}! You are logged in as {auth_person["approver_level"]} for {auth_person["branch_name"]}.', 'success')
-        return redirect(url_for('dashboard'))
-        
-    except Exception as e:
-        logger.error(f"Google OAuth callback error: {e}")
-        flash('Authentication failed. Please try again.', 'error')
-        return redirect(url_for('login'))
-
-
-@app.route('/login/manual', methods=['GET', 'POST'])
-def manual_login():
-    """Manual login for testing/fallback"""
     if request.method == 'POST':
         email = request.form['email']
+        password = request.form['password']
         
         # Validate pw.live domain
         if not validate_pw_email(email):
             flash('Please use your official pw.live email address.', 'error')
-            return render_template('manual_login.html')
+            return render_template('login.html')
         
-        # Check if user is authorized
-        auth_person = get_authorized_person(email)
+        # Check credentials in database
+        auth_person = authenticate_user(email, password)
         if not auth_person:
-            flash('You are not authorized to access this system. Please contact administrator.', 'error')
-            return render_template('manual_login.html')
+            flash('Invalid email or password. Please try again.', 'error')
+            return render_template('login.html')
         
         # Set session data
         session['logged_in_email'] = email
@@ -375,7 +325,13 @@ def manual_login():
         flash(f'Welcome {auth_person["name"]}! You are logged in as {auth_person["approver_level"]} for {auth_person["branch_name"]}.', 'success')
         return redirect(url_for('dashboard'))
     
-    return render_template('manual_login.html')
+    return render_template('login.html')
+
+
+@app.route('/login/manual', methods=['GET', 'POST'])
+def manual_login():
+    """Alternative manual login endpoint (same as main login)"""
+    return redirect(url_for('login'))
 
 @app.route('/logout')
 def logout():
@@ -582,14 +538,13 @@ def approve_request():
                 flash('Invalid request data.', 'error')
                 return redirect(url_for('approve_request'))
 
-            # Get current request details
+            # Get current request details - remove branch restriction for approvers
             get_query = f"""
                 SELECT * FROM `{project_id}.{dataset_id}.discount_requests`
-                WHERE enquiry_no = @enquiry_no AND branch_name = @branch_name
+                WHERE enquiry_no = @enquiry_no
             """
             get_params = [
-                bigquery.ScalarQueryParameter('enquiry_no', 'STRING', request_id),
-                bigquery.ScalarQueryParameter('branch_name', 'STRING', user_branch)
+                bigquery.ScalarQueryParameter('enquiry_no', 'STRING', request_id)
             ]
             get_config = bigquery.QueryJobConfig(query_parameters=get_params)
             result = list(client.query(get_query, get_config).result())
@@ -721,17 +676,26 @@ Please login to the Discount Management System to review and approve this reques
         # Get pending requests for the user's branch and level
         if approver_level == 'L1':
             status_filter = 'PENDING_L1'
+            # For L1, filter by specific approver logic
+            if logged_in_email == 'raja.ray@pw.live':
+                branch_filter = "AND branch_name IN ('Kolkata', 'Siliguri', 'Bhubaneshwar')"
+            elif logged_in_email == 'praduman.shukla@pw.live':
+                branch_filter = "AND branch_name NOT IN ('Kolkata', 'Siliguri', 'Bhubaneshwar')"
+            else:
+                # For others like Girish who can handle all
+                branch_filter = ""
         else:  # L2
             status_filter = 'PENDING_L2'
+            branch_filter = ""  # L2 approvers can handle all branches
         
         query = f"""
             SELECT * FROM `{project_id}.{dataset_id}.discount_requests`
-            WHERE status = @status AND branch_name = @branch_name
+            WHERE status = @status 
+            {branch_filter}
             ORDER BY created_at DESC
         """
         params = [
-            bigquery.ScalarQueryParameter('status', 'STRING', status_filter),
-            bigquery.ScalarQueryParameter('branch_name', 'STRING', user_branch)
+            bigquery.ScalarQueryParameter('status', 'STRING', status_filter)
         ]
         job_config = bigquery.QueryJobConfig(query_parameters=params)
         result = client.query(query, job_config=job_config).result()
@@ -805,9 +769,11 @@ def dashboard():
 
 # Add to app.py
 def parse_datetime(value):
-    from dateutil import parser
     try:
-        return parser.parse(value)
+        # Simple datetime parsing without dateutil
+        if isinstance(value, str):
+            return datetime.fromisoformat(value.replace('Z', '+00:00'))
+        return value
     except Exception:
         return value
 
