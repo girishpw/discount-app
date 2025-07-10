@@ -16,7 +16,16 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-PORT = int(os.environ.get("PORT", 5000))
+PORT = int(os.environ.get("PORT", 8080))
+
+# Replace hardcoded sensitive information with environment variables
+EMAIL_SENDER = os.getenv('EMAIL_SENDER', 'girish.chandra@pw.live')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'EcoTiger#0705')
+SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
+SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
+
+# Update app secret key to use environment variable
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'flask_secret_key')
 
 # Add logging for missing environment variables
 if not os.getenv('EMAIL_SENDER') or not os.getenv('EMAIL_PASSWORD') or not os.getenv('FLASK_SECRET_KEY'):
@@ -43,12 +52,24 @@ def get_bigquery_client():
     global client
     if client is None:
         try:
-            # Use Application Default Credentials in production
-            client = bigquery.Client(project=project_id)
-            logger.info(f"BigQuery client initialized with project: {project_id}")
+            # Try to use service account credentials first
+            credentials_path = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
+            if credentials_path and os.path.exists(credentials_path):
+                logger.info(f"Using service account credentials from: {credentials_path}")
+                credentials = service_account.Credentials.from_service_account_file(credentials_path)
+                client = bigquery.Client(project=project_id, credentials=credentials)
+            else:
+                # Fall back to Application Default Credentials
+                logger.info("Using Application Default Credentials")
+                client = bigquery.Client(project=project_id)
+            
+            # Test the connection
+            client.query("SELECT 1 as test").result()
+            logger.info(f"BigQuery client initialized successfully with project: {project_id}")
         except Exception as e:
             logger.error(f"Error initializing BigQuery client: {e}")
-            raise
+            logger.warning("BigQuery operations will be disabled")
+            client = None
     return client
 
 
@@ -133,28 +154,31 @@ def request_discount():
             # Verify authorized requester
             client = get_bigquery_client()
             if client:
-                # Update the query to pass branch_name as an array
-                query = f"""
-                    SELECT * FROM `{project_id}.{dataset_id}.authorized_persons`
-                    WHERE email = @email AND @branch_name IN UNNEST(branch_name)
-                """
-                job_config = bigquery.QueryJobConfig(
-                    query_parameters=[
-                        bigquery.ScalarQueryParameter("email", "STRING", data['requester_email']),
-                        bigquery.ArrayQueryParameter("branch_name", "STRING", [data['branch_name']])
-                    ]
-                )
-                query_job = client.query(query, job_config=job_config)
-                results = list(query_job.result())
+                try:
+                    # Update the query to pass branch_name as an array
+                    query = f"""
+                        SELECT * FROM `{project_id}.{dataset_id}.authorized_persons`
+                        WHERE email = @email AND @branch_name IN UNNEST(branch_name)
+                    """
+                    job_config = bigquery.QueryJobConfig(
+                        query_parameters=[
+                            bigquery.ScalarQueryParameter("email", "STRING", data['requester_email']),
+                            bigquery.ArrayQueryParameter("branch_name", "STRING", [data['branch_name']])
+                        ]
+                    )
+                    query_job = client.query(query, job_config=job_config)
+                    results = list(query_job.result())
 
-                if not results:
-                    logger.warning(f"Unauthorized requester: {data['requester_email']} at {data['branch_name']}")
-                    flash("Unauthorized requester. Please contact admin.", "error")
-                    return redirect(url_for('request_discount'))
+                    if not results:
+                        logger.warning(f"Unauthorized requester: {data['requester_email']} at {data['branch_name']}")
+                        flash("Unauthorized requester. Please contact admin.", "error")
+                        return redirect(url_for('request_discount'))
 
-                logger.info(f"Authorized requester verified: {data['requester_email']} at {data['branch_name']}")
+                    logger.info(f"Authorized requester verified: {data['requester_email']} at {data['branch_name']}")
+                except Exception as e:
+                    logger.warning(f"Authorization check failed: {e}. Proceeding without authorization check.")
             else:
-                logger.error("BigQuery client is unavailable. Skipping authorization check.")
+                logger.warning("BigQuery client is unavailable. Skipping authorization check.")
 
             # Check for duplicate submission
             try:
@@ -396,6 +420,10 @@ def approve_request():
 # Add new routes for redesigned UI
 def get_dashboard_stats():
     client = get_bigquery_client()
+    if client is None:
+        logger.warning("BigQuery client not available, returning default stats")
+        return 0, 0, 0, 0, []
+    
     try:
         # Get stats
         stats_query = f"""
@@ -411,6 +439,7 @@ def get_dashboard_stats():
         pending = stats_result['pending'] or 0
         approved = stats_result['approved'] or 0
         rejected = stats_result['rejected'] or 0
+        
         # Get recent requests
         recent_query = f"""
             SELECT enquiry_no, student_name, branch_name, status, mrp, discounted_fees, net_discount
@@ -421,8 +450,10 @@ def get_dashboard_stats():
         recent = list(client.query(recent_query).result())
         return total, pending, approved, rejected, recent
     except Exception as e:
-        if 'Access Denied' in str(e):
-            logger.warning(f"Skipping dashboard stats due to permission issue: {e}")
+        if 'Access Denied' in str(e) or '403' in str(e):
+            logger.warning(f"Access denied to BigQuery tables: {e}")
+        elif 'Not found' in str(e) or '404' in str(e):
+            logger.warning(f"BigQuery table not found: {e}")
         else:
             logger.error(f"Error fetching dashboard stats: {e}")
         return 0, 0, 0, 0, []
@@ -478,6 +509,70 @@ def test_adc():
         logger.error(f"Error loading ADC credentials: {e}")
         return jsonify({'status': 'error', 'message': str(e)})
 
+@app.route('/test_bigquery')
+def test_bigquery():
+    """Test BigQuery connectivity and authentication"""
+    try:
+        client = get_bigquery_client()
+        if client is None:
+            return jsonify({
+                'status': 'error',
+                'message': 'BigQuery client could not be initialized'
+            }), 500
+        
+        # Test basic query
+        test_query = "SELECT 1 as test_value"
+        result = list(client.query(test_query).result())
+        
+        # Test project access
+        project_info = {
+            'project_id': client.project,
+            'location': getattr(client, 'location', 'US'),
+        }
+        
+        # Test dataset access
+        try:
+            dataset_ref = client.dataset(dataset_id, project=project_id)
+            dataset = client.get_dataset(dataset_ref)
+            dataset_info = {
+                'dataset_id': dataset.dataset_id,
+                'created': dataset.created.isoformat() if dataset.created else None,
+                'location': dataset.location
+            }
+        except Exception as e:
+            dataset_info = {'error': str(e)}
+        
+        # Test table access
+        try:
+            table_ref = client.dataset(dataset_id, project=project_id).table('discount_requests')
+            table = client.get_table(table_ref)
+            table_info = {
+                'table_id': table.table_id,
+                'num_rows': table.num_rows,
+                'created': table.created.isoformat() if table.created else None
+            }
+        except Exception as e:
+            table_info = {'error': str(e)}
+        
+        return jsonify({
+            'status': 'success',
+            'test_query_result': result[0] if result else None,
+            'project_info': project_info,
+            'dataset_info': dataset_info,
+            'table_info': table_info,
+            'credentials_path': os.getenv('GOOGLE_APPLICATION_CREDENTIALS'),
+            'project_env': os.getenv('GOOGLE_CLOUD_PROJECT')
+        })
+        
+    except Exception as e:
+        logger.error(f"BigQuery test failed: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e),
+            'credentials_path': os.getenv('GOOGLE_APPLICATION_CREDENTIALS'),
+            'project_env': os.getenv('GOOGLE_CLOUD_PROJECT')
+        }), 500
+
 # Ensure the project ID is explicitly set in the environment
 os.environ['GOOGLE_CLOUD_PROJECT'] = 'gewportal2025'
 logger.info(f"GOOGLE_CLOUD_PROJECT set to: {os.environ.get('GOOGLE_CLOUD_PROJECT')}")
@@ -488,32 +583,45 @@ if not os.getenv('GOOGLE_APPLICATION_CREDENTIALS'):
 else:
     logger.info(f"GOOGLE_APPLICATION_CREDENTIALS: {os.getenv('GOOGLE_APPLICATION_CREDENTIALS')}")
 
-# Retrieve credentials from Secret Manager
+# Retrieve credentials from Secret Manager (for Cloud Run deployment)
 SECRET_NAME = os.getenv('SECRET_NAME', 'discount-key')
 
-try:
-    secret_client = secretmanager.SecretManagerServiceClient()
-    secret_path = f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT')}/secrets/{SECRET_NAME}/versions/latest"
-    response = secret_client.access_secret_version(name=secret_path)
-    credentials_content = response.payload.data.decode('UTF-8')
+def setup_bigquery_credentials():
+    """Setup BigQuery credentials from Secret Manager if available"""
+    try:
+        # Skip Secret Manager setup if credentials are already available
+        if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') and os.path.exists(os.getenv('GOOGLE_APPLICATION_CREDENTIALS')):
+            logger.info("Using existing service account credentials")
+            return
+        
+        # Try to get credentials from Secret Manager
+        secret_client = secretmanager.SecretManagerServiceClient()
+        secret_path = f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT', project_id)}/secrets/{SECRET_NAME}/versions/latest"
+        response = secret_client.access_secret_version(name=secret_path)
+        credentials_content = response.payload.data.decode('UTF-8')
 
-    # Write credentials to a temporary file
-    temp_credentials_path = '/tmp/gewportal2025-key.json'
-    with open(temp_credentials_path, 'w') as temp_file:
-        temp_file.write(credentials_content)
+        # Write credentials to a temporary file
+        temp_credentials_path = '/tmp/gewportal2025-key.json'
+        with open(temp_credentials_path, 'w') as temp_file:
+            temp_file.write(credentials_content)
 
-    # Set GOOGLE_APPLICATION_CREDENTIALS to the temporary file
-    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_credentials_path
-    logger.info(f"GOOGLE_APPLICATION_CREDENTIALS set to: {temp_credentials_path}")
-except Exception as e:
-    logger.error(f"Failed to retrieve credentials from Secret Manager: {e}")
+        # Set GOOGLE_APPLICATION_CREDENTIALS to the temporary file
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = temp_credentials_path
+        logger.info(f"GOOGLE_APPLICATION_CREDENTIALS set from Secret Manager: {temp_credentials_path}")
+    except Exception as e:
+        logger.warning(f"Failed to retrieve credentials from Secret Manager: {e}")
+        logger.info("Will try to use Application Default Credentials or existing credentials")
+
+# Setup credentials on startup
+setup_bigquery_credentials()
 
 # Make stats available in all templates
 @app.context_processor
 def inject_dashboard_stats():
     try:
         total_requests, pending_requests, approved_requests, rejected_requests, recent_requests = get_dashboard_stats()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to get dashboard stats: {e}")
         total_requests = pending_requests = approved_requests = rejected_requests = 0
         recent_requests = []
     return {

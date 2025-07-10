@@ -1,5 +1,6 @@
 {% extends 'dashboard.html' %}
 
+{% block page_title %}Request Discount - Discount Management{% endblock %}
 {% block title %}Request Student Discount{% endblock %}
 
 {% block content %}
@@ -11,6 +12,16 @@
         </div>
         
         <div class="p-6">
+            {% with messages = get_flashed_messages() %}
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="mb-4 p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
             <form method="POST" class="space-y-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
