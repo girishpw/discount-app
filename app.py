@@ -44,9 +44,24 @@ if missing_vars:
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
 
-# Google OAuth Configuration
-app.config['GOOGLE_OAUTH_CLIENT_ID'] = os.getenv('GOOGLE_OAUTH_CLIENT_ID')
-app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = os.getenv('GOOGLE_OAUTH_CLIENT_SECRET')
+# Google OAuth Configuration - Retrieve from Secret Manager
+def get_secret(secret_name):
+    """Retrieve secret from Google Secret Manager"""
+    try:
+        secret_client = secretmanager.SecretManagerServiceClient()
+        secret_path = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = secret_client.access_secret_version(name=secret_path)
+        return response.payload.data.decode('UTF-8')
+    except Exception as e:
+        logger.error(f"Failed to retrieve secret {secret_name}: {e}")
+        return None
+
+# Get OAuth credentials from Secret Manager
+oauth_client_id = get_secret('oauth-client-id') or os.getenv('GOOGLE_OAUTH_CLIENT_ID')
+oauth_client_secret = get_secret('oauth-client-secret') or os.getenv('GOOGLE_OAUTH_CLIENT_SECRET')
+
+app.config['GOOGLE_OAUTH_CLIENT_ID'] = oauth_client_id
+app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = oauth_client_secret
 
 # Initialize OAuth
 oauth = OAuth(app)

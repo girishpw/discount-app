@@ -1,0 +1,255 @@
+{% extends 'dashboard.html' %}
+
+{% block title %}Request Discount{% endblock %}
+
+{% block content %}
+<div class="p-6">
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="mb-6 p-4 rounded-xl {% if category == 'success' %}bg-green-50 border-l-4 border-green-400 text-green-700{% elif category == 'error' %}bg-red-50 border-l-4 border-red-400 text-red-700{% else %}bg-blue-50 border-l-4 border-blue-400 text-blue-700{% endif %}">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            {% if category == 'success' %}
+                                <i class="fas fa-check-circle text-green-400"></i>
+                            {% elif category == 'error' %}
+                                <i class="fas fa-exclamation-triangle text-red-400"></i>
+                            {% else %}
+                                <i class="fas fa-info-circle text-blue-400"></i>
+                            {% endif %}
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm font-medium">{{ message }}</p>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+        <div class="p-6 border-b border-gray-200 bg-gradient-to-r from-purple-500 to-cyan-500">
+            <h2 class="text-2xl font-bold text-white">Submit Discount Request</h2>
+            <p class="text-purple-100 mt-1">Fill in the details below to request a discount</p>
+        </div>
+        
+        <form method="POST" class="p-8">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <!-- Left Column -->
+                <div class="space-y-6">
+                    <div>
+                        <label for="enquiry_no" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Enquiry No. / Registration No. *
+                        </label>
+                        <input type="text" id="enquiry_no" name="enquiry_no" required 
+                               pattern="EN[0-9]{8}" 
+                               placeholder="EN12345678"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                        <p class="text-xs text-gray-500 mt-1">Format: EN followed by 8 digits (e.g., EN12345678)</p>
+                    </div>
+
+                    <div>
+                        <label for="student_name" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Student Name *
+                        </label>
+                        <input type="text" id="student_name" name="student_name" required 
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                    </div>
+
+                    <div>
+                        <label for="mobile_no" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Mobile Number *
+                        </label>
+                        <input type="tel" id="mobile_no" name="mobile_no" required 
+                               pattern="[0-9]{10}" 
+                               placeholder="9876543210"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                    </div>
+
+                    <div>
+                        <label for="branch_name" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Branch *
+                        </label>
+                        <select id="branch_name" name="branch_name" required onchange="loadCards()"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                            <option value="">Select Branch</option>
+                            {% for branch in branches %}
+                                <option value="{{ branch }}" {% if branch == user_branch %}selected{% endif %}>{{ branch }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="card_name" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Card *
+                        </label>
+                        <select id="card_name" name="card_name" required onchange="loadMRP()"
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                            <option value="">Select Card</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Right Column -->
+                <div class="space-y-6">
+                    <div>
+                        <label for="mrp" class="block text-sm font-semibold text-gray-700 mb-2">
+                            MRP (₹) *
+                        </label>
+                        <input type="number" id="mrp" name="mrp" required readonly
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                        <p class="text-xs text-gray-500 mt-1">MRP will be auto-filled based on branch and card selection</p>
+                    </div>
+
+                    <div>
+                        <label for="discounted_fees" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Requested Discounted Fees (₹) *
+                        </label>
+                        <input type="number" id="discounted_fees" name="discounted_fees" required step="0.01" min="0"
+                               oninput="calculateDiscount()"
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                    </div>
+
+                    <div>
+                        <label for="discount_amount" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Discount Amount (₹)
+                        </label>
+                        <input type="number" id="discount_amount" readonly
+                               class="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50">
+                        <p class="text-xs text-gray-500 mt-1">Calculated automatically</p>
+                    </div>
+
+                    <div>
+                        <label for="reason" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Reason for Discount *
+                        </label>
+                        <select id="reason" name="reason" required 
+                                class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition">
+                            <option value="">Select Reason</option>
+                            <option value="Financial Hardship">Financial Hardship</option>
+                            <option value="Early Bird Discount">Early Bird Discount</option>
+                            <option value="Sibling Discount">Sibling Discount</option>
+                            <option value="Merit Based">Merit Based</option>
+                            <option value="Special Circumstances">Special Circumstances</option>
+                            <option value="Other">Other</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="remarks" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Additional Remarks
+                        </label>
+                        <textarea id="remarks" name="remarks" rows="3"
+                                  placeholder="Any additional information or justification for the discount..."
+                                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-8 pt-6 border-t border-gray-200">
+                <div class="flex flex-col sm:flex-row gap-4 justify-end">
+                    <button type="button" onclick="resetForm()" 
+                            class="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium">
+                        <i class="fas fa-undo mr-2"></i> Reset Form
+                    </button>
+                    <button type="submit" 
+                            class="px-8 py-3 bg-gradient-to-r from-purple-500 to-cyan-500 text-white rounded-lg hover:from-purple-600 hover:to-cyan-600 transition font-medium shadow-lg">
+                        <i class="fas fa-paper-plane mr-2"></i> Submit Request
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+async function loadCards() {
+    const branchSelect = document.getElementById('branch_name');
+    const cardSelect = document.getElementById('card_name');
+    const mrpInput = document.getElementById('mrp');
+    
+    // Clear cards and MRP
+    cardSelect.innerHTML = '<option value="">Select Card</option>';
+    mrpInput.value = '';
+    
+    if (branchSelect.value) {
+        try {
+            const response = await fetch(`/api/cards/${encodeURIComponent(branchSelect.value)}`);
+            const cards = await response.json();
+            
+            cards.forEach(card => {
+                const option = document.createElement('option');
+                option.value = card;
+                option.textContent = card;
+                cardSelect.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading cards:', error);
+            alert('Error loading cards. Please try again.');
+        }
+    }
+}
+
+async function loadMRP() {
+    const branchSelect = document.getElementById('branch_name');
+    const cardSelect = document.getElementById('card_name');
+    const mrpInput = document.getElementById('mrp');
+    
+    if (branchSelect.value && cardSelect.value) {
+        try {
+            const response = await fetch(`/api/mrp/${encodeURIComponent(branchSelect.value)}/${encodeURIComponent(cardSelect.value)}`);
+            const data = await response.json();
+            
+            if (data.mrp) {
+                mrpInput.value = data.mrp;
+                calculateDiscount();
+            } else {
+                alert('MRP not found for this branch and card combination.');
+            }
+        } catch (error) {
+            console.error('Error loading MRP:', error);
+            alert('Error loading MRP. Please try again.');
+        }
+    }
+}
+
+function calculateDiscount() {
+    const mrpInput = document.getElementById('mrp');
+    const discountedFeesInput = document.getElementById('discounted_fees');
+    const discountAmountInput = document.getElementById('discount_amount');
+    
+    const mrp = parseFloat(mrpInput.value) || 0;
+    const discountedFees = parseFloat(discountedFeesInput.value) || 0;
+    
+    if (mrp > 0 && discountedFees >= 0) {
+        const discountAmount = mrp - discountedFees;
+        discountAmountInput.value = discountAmount.toFixed(2);
+        
+        // Validation
+        if (discountedFees > mrp) {
+            discountedFeesInput.setCustomValidity('Discounted fees cannot be greater than MRP');
+        } else {
+            discountedFeesInput.setCustomValidity('');
+        }
+    }
+}
+
+function resetForm() {
+    if (confirm('Are you sure you want to reset the form? All entered data will be lost.')) {
+        document.querySelector('form').reset();
+        document.getElementById('card_name').innerHTML = '<option value="">Select Card</option>';
+        document.getElementById('mrp').value = '';
+        document.getElementById('discount_amount').value = '';
+    }
+}
+
+// Load cards for user's branch on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const branchSelect = document.getElementById('branch_name');
+    if (branchSelect.value) {
+        loadCards();
+    }
+});
+</script>
+{% endblock %}

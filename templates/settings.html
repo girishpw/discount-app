@@ -1,0 +1,102 @@
+{% extends 'dashboard.html' %}
+
+{% block content %}
+<div class="p-6">
+    <h1 class="text-2xl font-bold text-gray-800 mb-6">System Settings</h1>
+    
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Account Settings -->
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4">Account Settings</h2>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Email Address</label>
+                    <input type="email" value="{{ session.get('logged_in_email', '') }}" 
+                        class="w-full border border-gray-300 rounded-lg p-3" disabled>
+                </div>
+                
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">Approval Level</label>
+                    <input type="text" value="{{ session.get('approver_level', 'User') }}" 
+                        class="w-full border border-gray-300 rounded-lg p-3" disabled>
+                </div>
+                
+                <div>
+                    <button class="bg-blue-600 text-white font-medium py-2 px-4 rounded-lg hover:bg-blue-700 transition">
+                        Update Account
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Notification Settings -->
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4">Notifications</h2>
+            
+            <div class="space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-medium text-gray-900">Email Notifications</h3>
+                        <p class="text-sm text-gray-500">Receive email alerts for new requests</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer" checked>
+                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+                
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h3 class="font-medium text-gray-900">Approval Reminders</h3>
+                        <p class="text-sm text-gray-500">Daily reminders for pending approvals</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer">
+                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                    </label>
+                </div>
+                
+                <div>
+                    <button class="bg-white border border-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg hover:bg-gray-50 transition">
+                        Save Preferences
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- System Information -->
+        <div class="bg-white rounded-xl shadow-sm p-6">
+            <h2 class="text-lg font-semibold text-gray-800 mb-4">System Information</h2>
+            
+            <div class="space-y-3">
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Application Version</span>
+                    <span class="font-medium">1.2.0</span>
+                </div>
+                
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Last Updated</span>
+                    <span class="font-medium">July 9, 2025</span>
+                </div>
+                
+                <div class="flex justify-between">
+                    <span class="text-gray-600">BigQuery Connection</span>
+                    <span class="font-medium text-green-600">Active</span>
+                </div>
+                
+                <div class="flex justify-between">
+                    <span class="text-gray-600">Email Service</span>
+                    <span class="font-medium text-green-600">Active</span>
+                </div>
+            </div>
+            
+            <div class="mt-6 pt-4 border-t border-gray-200">
+                <button class="bg-red-100 text-red-700 font-medium py-2 px-4 rounded-lg hover:bg-red-200 transition">
+                    <i class="fas fa-sync-alt mr-2"></i> Refresh Status
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

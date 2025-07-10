@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block page_title %}Discount Management System{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        
+        .sidebar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .stat-card {
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        
+        @media (min-width: 768px) {
+            .dashboard-container {
+                display: flex;
+                min-height: 100vh;
+            }
+            
+            .sidebar {
+                width: 260px;
+                flex-shrink: 0;
+            }
+            
+            .main-content {
+                flex: 1;
+            }
+        }
+        
+        @media (max-width: 767px) {
+            .sidebar {
+                position: fixed;
+                left: -260px;
+                top: 0;
+                bottom: 0;
+                width: 260px;
+                transition: left 0.3s ease;
+                z-index: 1000;
+            }
+            
+            .sidebar.active {
+                left: 0;
+            }
+            
+            .mobile-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: rgba(0, 0, 0, 0.5);
+                z-index: 999;
+                display: none;
+            }
+            
+            .mobile-overlay.active {
+                display: block;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Mobile Overlay -->
+        <div class="mobile-overlay" onclick="closeMobileMenu()"></div>
+        
+        <!-- Sidebar -->
+        <div class="sidebar text-white">
+            <div class="p-6">
+                <div class="flex items-center justify-center mb-8">
+                    <div class="bg-white rounded-lg p-3">
+                        <img src="{{ url_for('static', filename='GovtWallah.png') }}" alt="GovtWallah Logo" class="h-12 w-auto">
+                    </div>
+                </div>
+                
+                <div class="text-center mb-8 p-4 bg-white bg-opacity-10 rounded-lg">
+                    <div class="w-16 h-16 bg-white bg-opacity-20 rounded-full mx-auto mb-3 flex items-center justify-center">
+                        <i class="fas fa-user text-2xl"></i>
+                    </div>
+                    <h3 class="font-semibold">{{ session.get('logged_in_email', 'Guest') | truncate(20) }}</h3>
+                    <p class="text-white text-opacity-80 text-sm">Approver Level: L1</p>
+                </div>
+            </div>
+            
+            <nav class="px-4">
+                <ul class="space-y-2">
+                    <li>
+                        <a href="{{ url_for('dashboard') }}" class="flex items-center px-4 py-3 rounded-lg {% if request.endpoint == 'dashboard' %}bg-white bg-opacity-20{% else %}hover:bg-white hover:bg-opacity-10{% endif %} transition">
+                            <i class="fas fa-home mr-3"></i>
+                            Dashboard
+                        </a>
+                    </li>
+                    <li>
+                        <a href="{{ url_for('request_discount') }}" class="flex items-center px-4 py-3 rounded-lg {% if request.endpoint == 'request_discount' %}bg-white bg-opacity-20{% else %}hover:bg-white hover:bg-opacity-10{% endif %} transition">
+                            <i class="fas fa-percent mr-3"></i>
+                            Request Discount
+                        </a>
+                    </li>
+                    <li>
+                        <a href="{{ url_for('approve_request') }}" class="flex items-center px-4 py-3 rounded-lg {% if request.endpoint == 'approve_request' %}bg-white bg-opacity-20{% else %}hover:bg-white hover:bg-opacity-10{% endif %} transition">
+                            <i class="fas fa-check-circle mr-3"></i>
+                            Approve Requests
+                        </a>
+                    </li>
+                    <li>
+                        <a href="{{ url_for('analytics') }}" class="flex items-center px-4 py-3 rounded-lg {% if request.endpoint == 'analytics' %}bg-white bg-opacity-20{% else %}hover:bg-white hover:bg-opacity-10{% endif %} transition">
+                            <i class="fas fa-chart-bar mr-3"></i>
+                            Analytics
+                        </a>
+                    </li>
+                    <li>
+                        <a href="{{ url_for('settings') }}" class="flex items-center px-4 py-3 rounded-lg {% if request.endpoint == 'settings' %}bg-white bg-opacity-20{% else %}hover:bg-white hover:bg-opacity-10{% endif %} transition">
+                            <i class="fas fa-cog mr-3"></i>
+                            Settings
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+            
+            <div class="absolute bottom-0 left-0 right-0 p-6">
+                {% if 'logged_in_email' in session %}
+                    <a href="{{ url_for('logout') }}" class="flex items-center text-white text-opacity-80 hover:text-white">
+                        <i class="fas fa-sign-out-alt mr-3"></i>
+                        Logout
+                    </a>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="flex items-center text-white text-opacity-80 hover:text-white">
+                        <i class="fas fa-sign-in-alt mr-3"></i>
+                        Login
+                    </a>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Main Content -->
+        <div class="main-content bg-gray-50">
+            <!-- Top Bar -->
+            <div class="bg-white shadow-sm">
+                <div class="flex items-center justify-between p-4">
+                    <div class="flex items-center">
+                        <button class="mobile-menu-btn text-gray-700 mr-4 md:hidden" onclick="toggleMobileMenu()">
+                            <i class="fas fa-bars text-xl"></i>
+                        </button>
+                        <h1 class="text-xl font-bold text-gray-800">{% block title %}Dashboard{% endblock %}</h1>
+                    </div>
+                    
+                    <div class="flex items-center space-x-4">
+                        <div class="hidden md:flex items-center">
+                            <span class="text-gray-600">Welcome, {{ session.get('logged_in_email', 'User') | truncate(15) }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Page Content -->
+            {% block content %}
+            <!-- Default Dashboard Content -->
+            <div class="p-6">
+                <!-- Stats Cards -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+                    <div class="stat-card bg-white p-6 rounded-lg shadow-sm">
+                        <div class="flex items-center">
+                            <div class="flex-1">
+                                <p class="text-gray-600 text-sm">Total Requests</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ total_requests }}</p>
+                            </div>
+                            <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-file-alt text-blue-600 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card bg-white p-6 rounded-lg shadow-sm">
+                        <div class="flex items-center">
+                            <div class="flex-1">
+                                <p class="text-gray-600 text-sm">Pending</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ pending_requests }}</p>
+                            </div>
+                            <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-clock text-yellow-600 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card bg-white p-6 rounded-lg shadow-sm">
+                        <div class="flex items-center">
+                            <div class="flex-1">
+                                <p class="text-gray-600 text-sm">Approved</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ approved_requests }}</p>
+                            </div>
+                            <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-check-circle text-green-600 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="stat-card bg-white p-6 rounded-lg shadow-sm">
+                        <div class="flex items-center">
+                            <div class="flex-1">
+                                <p class="text-gray-600 text-sm">Rejected</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ rejected_requests }}</p>
+                            </div>
+                            <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-times-circle text-red-600 text-xl"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Recent Requests -->
+                <div class="bg-white rounded-lg shadow-sm">
+                    <div class="p-6 border-b border-gray-200">
+                        <h2 class="text-lg font-semibold text-gray-900">Recent Requests</h2>
+                    </div>
+                    <div class="divide-y divide-gray-200">
+                        {% for request in recent_requests[:5] %}
+                        <div class="p-6">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h3 class="font-medium text-gray-900">{{ request.student_name }}</h3>
+                                    <p class="text-sm text-gray-600">{{ request.enquiry_no }}</p>
+                                </div>
+                                <div class="text-right">
+                                    <p class="font-medium">₹{{ request.mrp|int }}</p>
+                                    <span class="inline-flex px-2 py-1 text-xs rounded-full {% if request.status == 'APPROVED' %}bg-green-100 text-green-800{% elif request.status == 'REJECTED' %}bg-red-100 text-red-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
+                                        {{ request.status }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="p-6 text-center text-gray-500">
+                            No recent requests found.
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endblock %}
+        </div>
+    </div>
+
+    <script>
+        function toggleMobileMenu() {
+            const sidebar = document.querySelector('.sidebar');
+            const overlay = document.querySelector('.mobile-overlay');
+            
+            sidebar.classList.toggle('active');
+            overlay.classList.toggle('active');
+        }
+        
+        function closeMobileMenu() {
+            const sidebar = document.querySelector('.sidebar');
+            const overlay = document.querySelector('.mobile-overlay');
+            
+            sidebar.classList.remove('active');
+            overlay.classList.remove('active');
+        }
+        
+        // Close menu when clicking on nav links on mobile
+        document.querySelectorAll('.sidebar a').forEach(link => {
+            link.addEventListener('click', () => {
+                if (window.innerWidth < 768) {
+                    closeMobileMenu();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

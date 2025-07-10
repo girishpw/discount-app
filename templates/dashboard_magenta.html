@@ -30,20 +30,11 @@
         .stat-card {
             transition: all 0.3s ease;
             border-left: 4px solid var(--primary-magenta);
-            background: var(--white);
         }
         
         .stat-card:hover {
             transform: translateY(-3px);
             box-shadow: 0 10px 30px -5px rgba(217, 70, 239, 0.3);
-        }
-        
-        .stat-card.cyan {
-            border-left-color: var(--cyan);
-        }
-        
-        .stat-card.cyan:hover {
-            box-shadow: 0 10px 30px -5px rgba(6, 182, 212, 0.3);
         }
         
         .btn-primary {
@@ -53,8 +44,6 @@
         
         .btn-primary:hover {
             background: linear-gradient(135deg, var(--dark-magenta) 0%, var(--primary-magenta) 100%);
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px -5px rgba(217, 70, 239, 0.4);
         }
         
         .btn-secondary {
@@ -64,22 +53,14 @@
         
         .btn-secondary:hover {
             background: linear-gradient(135deg, var(--dark-cyan) 0%, var(--cyan) 100%);
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px -5px rgba(6, 182, 212, 0.4);
         }
         
         .nav-link-active {
             background: linear-gradient(135deg, var(--primary-magenta) 0%, var(--cyan) 100%);
         }
         
-        .nav-link {
-            color: rgba(255, 255, 255, 0.8);
-            transition: all 0.3s ease;
-        }
-        
         .nav-link:hover {
             background: rgba(217, 70, 239, 0.2);
-            color: var(--white);
         }
         
         @media (min-width: 768px) {
@@ -140,7 +121,7 @@
             <div class="p-6">
                 <div class="flex items-center justify-center mb-8">
                     <div class="bg-white rounded-xl p-4 shadow-lg">
-                        <div class="text-2xl font-bold text-purple-600">GovtWallah</div>
+                        <img src="{{ url_for('static', filename='GovtWallah.png') }}" alt="GovtWallah Logo" class="h-16 w-auto">
                     </div>
                 </div>
                 
@@ -183,13 +164,33 @@
                     </li>
                     {% endif %}
                     <li>
-                        <a href="{{ url_for('logout') }}" class="nav-link flex items-center px-6 py-4 rounded-xl hover:bg-white hover:bg-opacity-10 transition">
-                            <i class="fas fa-sign-out-alt mr-4 text-lg"></i>
-                            <span class="font-medium">Logout</span>
+                        <a href="{{ url_for('analytics') }}" class="nav-link flex items-center px-6 py-4 rounded-xl {% if request.endpoint == 'analytics' %}nav-link-active{% else %}hover:bg-white hover:bg-opacity-10{% endif %} transition">
+                            <i class="fas fa-chart-bar mr-4 text-lg"></i>
+                            <span class="font-medium">Analytics</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="{{ url_for('settings') }}" class="nav-link flex items-center px-6 py-4 rounded-xl {% if request.endpoint == 'settings' %}nav-link-active{% else %}hover:bg-white hover:bg-opacity-10{% endif %} transition">
+                            <i class="fas fa-cog mr-4 text-lg"></i>
+                            <span class="font-medium">Settings</span>
                         </a>
                     </li>
                 </ul>
             </nav>
+            
+            <div class="absolute bottom-0 left-0 right-0 p-6">
+                {% if 'logged_in_email' in session %}
+                    <a href="{{ url_for('logout') }}" class="flex items-center text-white text-opacity-80 hover:text-white px-6 py-3 rounded-xl hover:bg-white hover:bg-opacity-10 transition">
+                        <i class="fas fa-sign-out-alt mr-3"></i>
+                        <span>Logout</span>
+                    </a>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="flex items-center text-white text-opacity-80 hover:text-white px-6 py-3 rounded-xl hover:bg-white hover:bg-opacity-10 transition">
+                        <i class="fas fa-sign-in-alt mr-3"></i>
+                        <span>Login</span>
+                    </a>
+                {% endif %}
+            </div>
         </div>
         
         <!-- Main Content -->
@@ -232,19 +233,19 @@
                                 <p class="text-gray-600 text-sm font-medium">Total Requests</p>
                                 <p class="text-3xl font-bold text-gray-900 mt-1">{{ total_requests }}</p>
                             </div>
-                            <div class="w-14 h-14 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, var(--primary-magenta), var(--dark-magenta));">
+                            <div class="w-14 h-14 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl flex items-center justify-center">
                                 <i class="fas fa-file-alt text-white text-xl"></i>
                             </div>
                         </div>
                     </div>
                     
-                    <div class="stat-card cyan bg-white p-6 rounded-xl shadow-lg">
+                    <div class="stat-card bg-white p-6 rounded-xl shadow-lg">
                         <div class="flex items-center">
                             <div class="flex-1">
                                 <p class="text-gray-600 text-sm font-medium">Pending</p>
                                 <p class="text-3xl font-bold text-gray-900 mt-1">{{ pending_requests }}</p>
                             </div>
-                            <div class="w-14 h-14 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                            <div class="w-14 h-14 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-xl flex items-center justify-center">
                                 <i class="fas fa-clock text-white text-xl"></i>
                             </div>
                         </div>
@@ -256,7 +257,7 @@
                                 <p class="text-gray-600 text-sm font-medium">Approved</p>
                                 <p class="text-3xl font-bold text-gray-900 mt-1">{{ approved_requests }}</p>
                             </div>
-                            <div class="w-14 h-14 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, var(--cyan), var(--dark-cyan));">
+                            <div class="w-14 h-14 bg-gradient-to-r from-green-400 to-green-600 rounded-xl flex items-center justify-center">
                                 <i class="fas fa-check-circle text-white text-xl"></i>
                             </div>
                         </div>
@@ -268,7 +269,7 @@
                                 <p class="text-gray-600 text-sm font-medium">Rejected</p>
                                 <p class="text-3xl font-bold text-gray-900 mt-1">{{ rejected_requests }}</p>
                             </div>
-                            <div class="w-14 h-14 rounded-xl flex items-center justify-center" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
+                            <div class="w-14 h-14 bg-gradient-to-r from-red-400 to-red-600 rounded-xl flex items-center justify-center">
                                 <i class="fas fa-times-circle text-white text-xl"></i>
                             </div>
                         </div>
@@ -277,7 +278,7 @@
                 
                 <!-- Recent Requests -->
                 <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-                    <div class="p-6 border-b border-gray-200" style="background: linear-gradient(135deg, var(--primary-magenta), var(--cyan));">
+                    <div class="p-6 border-b border-gray-200 bg-gradient-to-r from-purple-500 to-cyan-500">
                         <h2 class="text-xl font-bold text-white">Recent Requests</h2>
                     </div>
                     <div class="divide-y divide-gray-200">
