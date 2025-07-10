@@ -590,12 +590,18 @@ SECRET_NAME = os.getenv('SECRET_NAME', 'discount-key')
 def setup_bigquery_credentials():
     """Setup BigQuery credentials from Secret Manager if available"""
     try:
+        # In Cloud Run, service account is automatically available
+        # Skip Secret Manager setup if we're in production with service account
+        if os.getenv('K_SERVICE'):  # Cloud Run environment
+            logger.info("Running in Cloud Run, using service account authentication")
+            return
+            
         # Skip Secret Manager setup if credentials are already available
         if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') and os.path.exists(os.getenv('GOOGLE_APPLICATION_CREDENTIALS')):
             logger.info("Using existing service account credentials")
             return
         
-        # Try to get credentials from Secret Manager
+        # Try to get credentials from Secret Manager (for local development)
         secret_client = secretmanager.SecretManagerServiceClient()
         secret_path = f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT', project_id)}/secrets/{SECRET_NAME}/versions/latest"
         response = secret_client.access_secret_version(name=secret_path)
