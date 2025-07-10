@@ -523,6 +523,7 @@ def test_bigquery():
         # Test basic query
         test_query = "SELECT 1 as test_value"
         result = list(client.query(test_query).result())
+        test_result = dict(result[0]) if result else None
         
         # Test project access
         project_info = {
@@ -556,7 +557,7 @@ def test_bigquery():
         
         return jsonify({
             'status': 'success',
-            'test_query_result': result[0] if result else None,
+            'test_query_result': test_result,
             'project_info': project_info,
             'dataset_info': dataset_info,
             'table_info': table_info,
