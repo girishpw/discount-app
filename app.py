@@ -9,7 +9,6 @@ import smtplib
 from email.mime.text import MIMEText
 import json
 from datetime import datetime,timezone
-import traceback
 from authlib.integrations.flask_client import OAuth
 from functools import wraps
 
@@ -810,71 +809,6 @@ def datetimeformat(value, format='%b %d, %Y %I:%M %p'):
         return str(value)
 
 
-
-@app.route('/test_bigquery')
-def test_bigquery():
-    """Test BigQuery connectivity and authentication"""
-    try:
-        client = get_bigquery_client()
-        if client is None:
-            return jsonify({
-                'status': 'error',
-                'message': 'BigQuery client could not be initialized'
-            }), 500
-        
-        # Test basic query
-        test_query = "SELECT 1 as test_value"
-        result = list(client.query(test_query).result())
-        test_result = dict(result[0]) if result else None
-        
-        # Test project access
-        project_info = {
-            'project_id': client.project,
-            'location': getattr(client, 'location', 'US'),
-        }
-        
-        # Test dataset access
-        try:
-            dataset_ref = client.dataset(dataset_id, project=project_id)
-            dataset = client.get_dataset(dataset_ref)
-            dataset_info = {
-                'dataset_id': dataset.dataset_id,
-                'created': dataset.created.isoformat() if dataset.created else None,
-                'location': dataset.location
-            }
-        except Exception as e:
-            dataset_info = {'error': str(e)}
-        
-        # Test table access
-        try:
-            table_ref = client.dataset(dataset_id, project=project_id).table('discount_requests')
-            table = client.get_table(table_ref)
-            table_info = {
-                'table_id': table.table_id,
-                'num_rows': table.num_rows,
-                'created': table.created.isoformat() if table.created else None
-            }
-        except Exception as e:
-            table_info = {'error': str(e)}
-        
-        return jsonify({
-            'status': 'success',
-            'test_query_result': test_result,
-            'project_info': project_info,
-            'dataset_info': dataset_info,
-            'table_info': table_info,
-            'credentials_path': os.getenv('GOOGLE_APPLICATION_CREDENTIALS'),
-            'project_env': os.getenv('GOOGLE_CLOUD_PROJECT')
-        })
-        
-    except Exception as e:
-        logger.error(f"BigQuery test failed: {e}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e),
-            'credentials_path': os.getenv('GOOGLE_APPLICATION_CREDENTIALS'),
-            'project_env': os.getenv('GOOGLE_CLOUD_PROJECT')
-        }), 500
 
 # Ensure the project ID is explicitly set in the environment
 os.environ['GOOGLE_CLOUD_PROJECT'] = 'gewportal2025'
