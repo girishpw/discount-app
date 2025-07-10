@@ -2,3 +2,5 @@ Flask==2.3.3
 google-cloud-bigquery==3.25.0
 google-cloud-secret-manager==2.20.0
 gunicorn==21.2.0
+authlib==1.2.1
+python-dateutil==2.8.2

@@ -1,5 +1,6 @@
 import os
 import logging
+import re
 from flask import Flask, request, render_template, redirect, url_for, flash, jsonify, session
 from google.cloud import bigquery
 from google.cloud import secretmanager
@@ -9,6 +10,8 @@ from email.mime.text import MIMEText
 import json
 from datetime import datetime,timezone
 import traceback
+from authlib.integrations.flask_client import OAuth
+from functools import wraps
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +45,22 @@ if missing_vars:
 app.config['SESSION_TYPE'] = 'filesystem'
 app.config['SESSION_PERMANENT'] = False
 
+# Google OAuth Configuration
+app.config['GOOGLE_OAUTH_CLIENT_ID'] = os.getenv('GOOGLE_OAUTH_CLIENT_ID')
+app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = os.getenv('GOOGLE_OAUTH_CLIENT_SECRET')
+
+# Initialize OAuth
+oauth = OAuth(app)
+google_oauth = oauth.register(
+    name='google',
+    client_id=app.config['GOOGLE_OAUTH_CLIENT_ID'],
+    client_secret=app.config['GOOGLE_OAUTH_CLIENT_SECRET'],
+    server_metadata_url='https://accounts.google.com/.well-known/openid_configuration',
+    client_kwargs={
+        'scope': 'openid email profile'
+    }
+)
+
 # Initialize BigQuery client
 project_id = 'gewportal2025'
 dataset_id = 'discount_management'
@@ -73,22 +92,282 @@ def get_bigquery_client():
     return client
 
 
-@app.route('/login', methods=['GET', 'POST'])
+def validate_pw_email(email):
+    """Validate if email is from pw.live domain"""
+    return email.endswith('@pw.live')
+
+
+def require_auth(f):
+    """Decorator to require authentication for routes"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'logged_in_email' not in session:
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def require_permission(permission):
+    """Decorator to require specific permissions"""
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if 'logged_in_email' not in session:
+                return redirect(url_for('login'))
+            
+            if permission == 'request_discount' and not session.get('can_request_discount', False):
+                flash('You are not authorized to request discounts.', 'error')
+                return redirect(url_for('dashboard'))
+            elif permission == 'approve' and session.get('approver_level') not in ['L1', 'L2']:
+                flash('You are not authorized to approve requests.', 'error')
+                return redirect(url_for('dashboard'))
+            
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+
+def validate_enquiry_no(enquiry_no):
+    """Validate enquiry number format EN********* (8 digits)"""
+    pattern = r'^EN\d{8}$'
+    return re.match(pattern, enquiry_no) is not None
+
+
+def get_authorized_person(email):
+    """Get authorized person details from database"""
+    client = get_bigquery_client()
+    if not client:
+        return None
+    
+    try:
+        query = f"""
+            SELECT email, name, branch_name, approver_level, can_request_discount
+            FROM `{project_id}.{dataset_id}.authorized_persons`
+            WHERE email = @email AND is_active = true
+        """
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter('email', 'STRING', email)
+            ]
+        )
+        result = list(client.query(query, job_config=job_config).result())
+        return result[0] if result else None
+    except Exception as e:
+        logger.error(f"Error fetching authorized person: {e}")
+        return None
+
+
+def get_branches():
+    """Get unique branches from branch_cards_fees table"""
+    client = get_bigquery_client()
+    if not client:
+        return []
+    
+    try:
+        query = f"""
+            SELECT DISTINCT branch_name
+            FROM `{project_id}.{dataset_id}.branch_crads_fees`
+            ORDER BY branch_name
+        """
+        result = client.query(query).result()
+        return [row.branch_name for row in result]
+    except Exception as e:
+        logger.error(f"Error fetching branches: {e}")
+        return []
+
+
+def get_cards_for_branch(branch_name):
+    """Get cards for a specific branch"""
+    client = get_bigquery_client()
+    if not client:
+        return []
+    
+    try:
+        query = f"""
+            SELECT DISTINCT card_name
+            FROM `{project_id}.{dataset_id}.branch_crads_fees`
+            WHERE branch_name = @branch_name
+            ORDER BY card_name
+        """
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter('branch_name', 'STRING', branch_name)
+            ]
+        )
+        result = client.query(query, job_config=job_config).result()
+        return [row.card_name for row in result]
+    except Exception as e:
+        logger.error(f"Error fetching cards for branch: {e}")
+        return []
+
+
+def get_mrp_for_branch_card(branch_name, card_name):
+    """Get MRP for specific branch and card combination"""
+    client = get_bigquery_client()
+    if not client:
+        return None
+    
+    try:
+        query = f"""
+            SELECT mrp
+            FROM `{project_id}.{dataset_id}.branch_crads_fees`
+            WHERE branch_name = @branch_name AND card_name = @card_name
+        """
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter('branch_name', 'STRING', branch_name),
+                bigquery.ScalarQueryParameter('card_name', 'STRING', card_name)
+            ]
+        )
+        result = list(client.query(query, job_config=job_config).result())
+        return float(result[0].mrp) if result else None
+    except Exception as e:
+        logger.error(f"Error fetching MRP: {e}")
+        return None
+
+
+def get_approvers_for_branch(branch_name, level):
+    """Get approvers for a specific branch and level"""
+    client = get_bigquery_client()
+    if not client:
+        return []
+    
+    try:
+        query = f"""
+            SELECT email, name
+            FROM `{project_id}.{dataset_id}.authorized_persons`
+            WHERE branch_name = @branch_name 
+            AND approver_level = @level 
+            AND is_active = true
+        """
+        job_config = bigquery.QueryJobConfig(
+            query_parameters=[
+                bigquery.ScalarQueryParameter('branch_name', 'STRING', branch_name),
+                bigquery.ScalarQueryParameter('level', 'STRING', level)
+            ]
+        )
+        result = client.query(query, job_config=job_config).result()
+        return [(row.email, row.name) for row in result]
+    except Exception as e:
+        logger.error(f"Error fetching approvers: {e}")
+        return []
+
+
+def send_notification_email(to_emails, subject, body):
+    """Send notification email to multiple recipients"""
+    try:
+        for email in to_emails:
+            msg = MIMEText(body)
+            msg['Subject'] = subject
+            msg['From'] = EMAIL_SENDER
+            msg['To'] = email
+            
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls()
+                server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+                server.send_message(msg)
+        
+        logger.info(f"Notification emails sent to {to_emails}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send notification emails: {e}")
+        return False
+
+
+@app.route('/login')
 def login():
+    """Check if user is already authenticated via browser session or redirect to Google OAuth"""
+    # Check if user is already logged in
+    if 'logged_in_email' in session:
+        return redirect(url_for('dashboard'))
+    
+    # Try to get user email from browser if possible (this would be set by domain admin)
+    # For now, we'll show the login page with Google OAuth option
+    return render_template('login.html')
+
+
+@app.route('/auth/google')
+def google_auth():
+    """Initiate Google OAuth login"""
+    redirect_uri = url_for('google_callback', _external=True)
+    return google_oauth.authorize_redirect(redirect_uri)
+
+
+@app.route('/auth/google/callback')
+def google_callback():
+    """Handle Google OAuth callback"""
+    try:
+        token = google_oauth.authorize_access_token()
+        user_info = token.get('userinfo')
+        
+        if not user_info:
+            flash('Failed to get user information from Google.', 'error')
+            return redirect(url_for('login'))
+        
+        email = user_info.get('email')
+        name = user_info.get('name')
+        
+        # Validate pw.live domain
+        if not validate_pw_email(email):
+            flash('Please use your official pw.live email address.', 'error')
+            return redirect(url_for('login'))
+        
+        # Check if user is authorized
+        auth_person = get_authorized_person(email)
+        if not auth_person:
+            flash('You are not authorized to access this system. Please contact administrator.', 'error')
+            return redirect(url_for('login'))
+        
+        # Set session data
+        session['logged_in_email'] = email
+        session['user_name'] = auth_person['name']
+        session['branch_name'] = auth_person['branch_name']
+        session['approver_level'] = auth_person['approver_level']
+        session['can_request_discount'] = auth_person['can_request_discount']
+        
+        flash(f'Welcome {auth_person["name"]}! You are logged in as {auth_person["approver_level"]} for {auth_person["branch_name"]}.', 'success')
+        return redirect(url_for('dashboard'))
+        
+    except Exception as e:
+        logger.error(f"Google OAuth callback error: {e}")
+        flash('Authentication failed. Please try again.', 'error')
+        return redirect(url_for('login'))
+
+
+@app.route('/login/manual', methods=['GET', 'POST'])
+def manual_login():
+    """Manual login for testing/fallback"""
     if request.method == 'POST':
         email = request.form['email']
+        
+        # Validate pw.live domain
+        if not validate_pw_email(email):
+            flash('Please use your official pw.live email address.', 'error')
+            return render_template('manual_login.html')
+        
+        # Check if user is authorized
+        auth_person = get_authorized_person(email)
+        if not auth_person:
+            flash('You are not authorized to access this system. Please contact administrator.', 'error')
+            return render_template('manual_login.html')
+        
+        # Set session data
         session['logged_in_email'] = email
+        session['user_name'] = auth_person['name']
+        session['branch_name'] = auth_person['branch_name']
+        session['approver_level'] = auth_person['approver_level']
+        session['can_request_discount'] = auth_person['can_request_discount']
         
-        # Set a default approver_level for non-approvers
-        session['approver_level'] = 'User'
-        
-        return redirect(url_for('index'))
-    return render_template('login.html')
+        flash(f'Welcome {auth_person["name"]}! You are logged in as {auth_person["approver_level"]} for {auth_person["branch_name"]}.', 'success')
+        return redirect(url_for('dashboard'))
+    
+    return render_template('manual_login.html')
 
 @app.route('/logout')
 def logout():
-    session.pop('logged_in_email', None)
-    return redirect(url_for('index'))
+    session.clear()
+    flash('You have been logged out successfully.', 'info')
+    return redirect(url_for('login'))
 
 def send_email(to_email, subject, body):
     try:
@@ -126,296 +405,333 @@ def health_check():
 
 
 @app.route('/request_discount', methods=['GET', 'POST'])
+@require_auth
+@require_permission('request_discount')
 def request_discount():
+    
     if request.method == 'POST':
         try:
-            # Capture form data
+            # Validate enquiry number format
+            enquiry_no = request.form['enquiry_no']
+            if not validate_enquiry_no(enquiry_no):
+                flash('Invalid enquiry number format. Must be EN followed by 8 digits (e.g., EN12345678).', 'error')
+                return redirect(url_for('request_discount'))
+            
+            # Get form data
+            branch_name = request.form['branch_name']
+            card_name = request.form['card_name']
+            
+            # Validate MRP from database
+            db_mrp = get_mrp_for_branch_card(branch_name, card_name)
+            if not db_mrp:
+                flash('Invalid branch and card combination.', 'error')
+                return redirect(url_for('request_discount'))
+            
+            form_mrp = float(request.form['mrp'])
+            if abs(form_mrp - db_mrp) > 0.01:  # Allow small floating point differences
+                flash(f'MRP mismatch. Expected: ₹{db_mrp}, Provided: ₹{form_mrp}', 'error')
+                return redirect(url_for('request_discount'))
+            
+            # Prepare data for insertion
+            discounted_fees = float(request.form['discounted_fees'])
             data = {
-                'enquiry_no': request.form['enquiry_no'],
+                'enquiry_no': enquiry_no,
                 'student_name': request.form['student_name'],
                 'mobile_no': request.form['mobile_no'],
-                'card_name': request.form['card_name'],
-                'mrp': float(request.form['mrp']),
-                'discounted_fees': float(request.form['discounted_fees']),
-                'net_discount': float(request.form['mrp']) - float(request.form['discounted_fees']),
+                'card_name': card_name,
+                'mrp': db_mrp,
+                'discounted_fees': discounted_fees,
+                'net_discount': db_mrp - discounted_fees,
                 'reason': request.form['reason'],
-                'remarks': request.form['remarks'],
-                'requester_email': request.form['requester_email'],
-                'requester_name': request.form['requester_name'],
-                'branch_name': request.form['branch_name'],
-                'status': 'PENDING',
+                'remarks': request.form.get('remarks', ''),
+                'requester_email': session['logged_in_email'],
+                'requester_name': session['user_name'],
+                'branch_name': branch_name,
+                'status': 'PENDING_L1',
                 'created_at': datetime.now(timezone.utc).isoformat(),
                 'l1_approver': None,
                 'l2_approver': None
             }
 
-            logger.info(f"Form data received: {data}")
-
-            # Verify authorized requester
+            # Insert into database
             client = get_bigquery_client()
             if client:
-                try:
-                    # Update the query to pass branch_name as an array
-                    query = f"""
-                        SELECT * FROM `{project_id}.{dataset_id}.authorized_persons`
-                        WHERE email = @email AND @branch_name IN UNNEST(branch_name)
-                    """
-                    job_config = bigquery.QueryJobConfig(
-                        query_parameters=[
-                            bigquery.ScalarQueryParameter("email", "STRING", data['requester_email']),
-                            bigquery.ArrayQueryParameter("branch_name", "STRING", [data['branch_name']])
-                        ]
-                    )
-                    query_job = client.query(query, job_config=job_config)
-                    results = list(query_job.result())
-
-                    if not results:
-                        logger.warning(f"Unauthorized requester: {data['requester_email']} at {data['branch_name']}")
-                        flash("Unauthorized requester. Please contact admin.", "error")
-                        return redirect(url_for('request_discount'))
-
-                    logger.info(f"Authorized requester verified: {data['requester_email']} at {data['branch_name']}")
-                except Exception as e:
-                    logger.warning(f"Authorization check failed: {e}. Proceeding without authorization check.")
-            else:
-                logger.warning("BigQuery client is unavailable. Skipping authorization check.")
-
-            # Check for duplicate submission
-            try:
-                query = f"""
-                    SELECT enquiry_no FROM `{project_id}.{dataset_id}.discount_requests`
+                # Check for duplicates
+                dup_query = f"""
+                    SELECT COUNT(*) as count FROM `{project_id}.{dataset_id}.discount_requests`
                     WHERE enquiry_no = @enquiry_no AND requester_email = @requester_email
-                    LIMIT 1
                 """
-                job_config = bigquery.QueryJobConfig(
+                dup_config = bigquery.QueryJobConfig(
                     query_parameters=[
-                        bigquery.ScalarQueryParameter("enquiry_no", "STRING", data['enquiry_no']),
-                        bigquery.ScalarQueryParameter("requester_email", "STRING", data['requester_email'])
+                        bigquery.ScalarQueryParameter('enquiry_no', 'STRING', enquiry_no),
+                        bigquery.ScalarQueryParameter('requester_email', 'STRING', session['logged_in_email'])
                     ]
                 )
-                query_job = client.query(query, job_config=job_config)
-                result = list(query_job.result())
-
-                if result:
-                    logger.warning(f"Duplicate submission detected for enquiry_no={data['enquiry_no']} and requester_email={data['requester_email']}")
-                    flash("Duplicate submission detected. Please check your previous requests.", "error")
+                dup_result = list(client.query(dup_query, dup_config).result())[0]
+                
+                if dup_result.count > 0:
+                    flash('Duplicate request. This enquiry number has already been submitted.', 'error')
                     return redirect(url_for('request_discount'))
-            except Exception as e:
-                logger.error(f"Error checking for duplicate submission: {e}")
-
-            # Insert data into BigQuery table
-            try:
-                query = f"""
+                
+                # Insert new request
+                insert_query = f"""
                     INSERT INTO `{project_id}.{dataset_id}.discount_requests`
-                    (enquiry_no, student_name, mobile_no, card_name, mrp, discounted_fees, net_discount, reason, remarks, requester_email, requester_name, branch_name, status, created_at, l1_approver, l2_approver)
-                    VALUES (@enquiry_no, @student_name, @mobile_no, @card_name, @mrp, @discounted_fees, @net_discount, @reason, @remarks, @requester_email, @requester_name, @branch_name, @status, @created_at, @l1_approver, @l2_approver)
+                    (enquiry_no, student_name, mobile_no, card_name, mrp, discounted_fees, net_discount, 
+                     reason, remarks, requester_email, requester_name, branch_name, status, created_at, 
+                     l1_approver, l2_approver)
+                    VALUES (@enquiry_no, @student_name, @mobile_no, @card_name, @mrp, @discounted_fees, 
+                            @net_discount, @reason, @remarks, @requester_email, @requester_name, 
+                            @branch_name, @status, @created_at, @l1_approver, @l2_approver)
                 """
-                job_config = bigquery.QueryJobConfig(
-                    query_parameters=[
-                        bigquery.ScalarQueryParameter("enquiry_no", "STRING", data['enquiry_no']),
-                        bigquery.ScalarQueryParameter("student_name", "STRING", data['student_name']),
-                        bigquery.ScalarQueryParameter("mobile_no", "STRING", data['mobile_no']),
-                        bigquery.ScalarQueryParameter("card_name", "STRING", data['card_name']),
-                        bigquery.ScalarQueryParameter("mrp", "FLOAT", data['mrp']),
-                        bigquery.ScalarQueryParameter("discounted_fees", "FLOAT", data['discounted_fees']),
-                        bigquery.ScalarQueryParameter("net_discount", "FLOAT", data['net_discount']),
-                        bigquery.ScalarQueryParameter("reason", "STRING", data['reason']),
-                        bigquery.ScalarQueryParameter("remarks", "STRING", data['remarks']),
-                        bigquery.ScalarQueryParameter("requester_email", "STRING", data['requester_email']),
-                        bigquery.ScalarQueryParameter("requester_name", "STRING", data['requester_name']),
-                        bigquery.ScalarQueryParameter("branch_name", "STRING", data['branch_name']),
-                        bigquery.ScalarQueryParameter("status", "STRING", data['status']),
-                        bigquery.ScalarQueryParameter("created_at", "STRING", data['created_at']),
-                        bigquery.ScalarQueryParameter("l1_approver", "STRING", data['l1_approver']),
-                        bigquery.ScalarQueryParameter("l2_approver", "STRING", data['l2_approver'])
-                    ]
-                )
-                client.query(query, job_config=job_config)
-                logger.info("Data inserted into discount_requests table successfully.")
-            except Exception as e:
-                logger.error(f"Error inserting data into discount_requests table: {e}")
-                flash("An error occurred while submitting your request. Please try again later.", "error")
+                
+                insert_params = [
+                    bigquery.ScalarQueryParameter('enquiry_no', 'STRING', data['enquiry_no']),
+                    bigquery.ScalarQueryParameter('student_name', 'STRING', data['student_name']),
+                    bigquery.ScalarQueryParameter('mobile_no', 'STRING', data['mobile_no']),
+                    bigquery.ScalarQueryParameter('card_name', 'STRING', data['card_name']),
+                    bigquery.ScalarQueryParameter('mrp', 'FLOAT', data['mrp']),
+                    bigquery.ScalarQueryParameter('discounted_fees', 'FLOAT', data['discounted_fees']),
+                    bigquery.ScalarQueryParameter('net_discount', 'FLOAT', data['net_discount']),
+                    bigquery.ScalarQueryParameter('reason', 'STRING', data['reason']),
+                    bigquery.ScalarQueryParameter('remarks', 'STRING', data['remarks']),
+                    bigquery.ScalarQueryParameter('requester_email', 'STRING', data['requester_email']),
+                    bigquery.ScalarQueryParameter('requester_name', 'STRING', data['requester_name']),
+                    bigquery.ScalarQueryParameter('branch_name', 'STRING', data['branch_name']),
+                    bigquery.ScalarQueryParameter('status', 'STRING', data['status']),
+                    bigquery.ScalarQueryParameter('created_at', 'STRING', data['created_at']),
+                    bigquery.ScalarQueryParameter('l1_approver', 'STRING', data['l1_approver']),
+                    bigquery.ScalarQueryParameter('l2_approver', 'STRING', data['l2_approver'])
+                ]
+                
+                insert_config = bigquery.QueryJobConfig(query_parameters=insert_params)
+                client.query(insert_query, insert_config).result()
+                
+                # Notify L1 approvers
+                l1_approvers = get_approvers_for_branch(branch_name, 'L1')
+                if l1_approvers:
+                    approver_emails = [email for email, name in l1_approvers]
+                    subject = f"New Discount Request - {enquiry_no}"
+                    body = f"""
+A new discount request has been submitted and requires your approval.
+
+Request Details:
+- Enquiry No: {enquiry_no}
+- Student Name: {data['student_name']}
+- Branch: {branch_name}
+- Card: {card_name}
+- MRP: ₹{data['mrp']}
+- Requested Discounted Fees: ₹{discounted_fees}
+- Discount Amount: ₹{data['net_discount']}
+- Reason: {data['reason']}
+- Requested by: {data['requester_name']} ({data['requester_email']})
+
+Please login to the Discount Management System to review and approve this request.
+                    """
+                    send_notification_email(approver_emails, subject, body)
+                
+                flash('Discount request submitted successfully! L1 approvers have been notified.', 'success')
                 return redirect(url_for('request_discount'))
-
-            flash("Discount request submitted successfully.", "success")
-            return redirect(url_for('request_discount'))
-
+            
         except Exception as e:
             logger.error(f"Error processing discount request: {e}")
-            flash("An error occurred while processing your request. Please try again later.", "error")
+            flash('An error occurred while processing your request. Please try again.', 'error')
             return redirect(url_for('request_discount'))
-
-    approver_level = session.get('approver_level', 'Unknown')
-    return render_template('request_discount.html', approver_level=approver_level)
+    
+    # GET request - show form
+    branches = get_branches()
+    return render_template('request_discount.html', 
+                         branches=branches,
+                         user_branch=session.get('branch_name', ''),
+                         approver_level=session.get('approver_level', 'Unknown'))
 
 
 @app.route('/approve_request', methods=['GET', 'POST'])
+@require_auth
+@require_permission('approve')
 def approve_request():
-    if 'logged_in_email' not in session:
-        return redirect(url_for('login'))
     
     client = get_bigquery_client()
-
     logged_in_email = session.get('logged_in_email')
-    if not logged_in_email:
-        flash('You must be logged in to approve requests.', 'error')
-        return redirect(url_for('index'))
+    user_branch = session.get('branch_name')
+    approver_level = session.get('approver_level')
 
     if request.method == 'POST':
         try:
-            request_id = request.form['request_id']
-            action = request.form['action']
-            approved_discount_value = request.form.get('discounted_fees')
+            request_id = request.form.get('request_id')
+            action = request.form.get('action')
+            approved_discount_value = request.form.get('approved_discount_value')
+            approver_comments = request.form.get('approver_comments', '')
 
-            logger.info(f"Approve request received: request_id={request_id}, action={action}, logged_in_email={logged_in_email}, approved_discount_value={approved_discount_value}")
+            logger.info(f"Processing {action} for request {request_id} by {logged_in_email} (Level: {approver_level})")
 
-            # Verify approver
-            logger.info(f"Logged in email: {logged_in_email}")
-            query = f"""
-                SELECT * FROM (
-                    SELECT *, ROW_NUMBER() OVER (PARTITION BY enquiry_no ORDER BY created_at DESC) as rn 
-                    FROM `{project_id}.{dataset_id}.discount_requests`
-                    WHERE status IN ('PENDING', 'APPROVED_L1')
-                ) WHERE rn = 1
-            """
-            logger.info(f"Executing approver query: {query}")
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter('logged_in_email', 'STRING', logged_in_email)
-                ]
-            )
-            result = list(client.query(query, job_config=job_config).result())
-            approver = result[0] if result else None
-
-            if not approver:
-                logger.warning(f"Unauthorized approver: {logged_in_email}")
-                flash('Unauthorized approver', 'error')
+            if not request_id or not action:
+                flash('Invalid request data.', 'error')
                 return redirect(url_for('approve_request'))
 
-            logger.info(f"Approver verified: {approver}")
-
-            # Set the approver level in the session
-            session['approver_level'] = approver['level']
-            logger.info(f"Approver level set in session: {approver['level']}")
-
-            # Display approver level at the top
-            flash(f"Logged in as {logged_in_email} (Level: {approver['level']})", 'info')
-
-            # Get request details
-            query = f"""
+            # Get current request details
+            get_query = f"""
                 SELECT * FROM `{project_id}.{dataset_id}.discount_requests`
-                WHERE enquiry_no = @enquiry_no
+                WHERE enquiry_no = @enquiry_no AND branch_name = @branch_name
             """
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
+            get_params = [
+                bigquery.ScalarQueryParameter('enquiry_no', 'STRING', request_id),
+                bigquery.ScalarQueryParameter('branch_name', 'STRING', user_branch)
+            ]
+            get_config = bigquery.QueryJobConfig(query_parameters=get_params)
+            result = list(client.query(get_query, get_config).result())
+            
+            if not result:
+                flash('Request not found or you are not authorized to approve this request.', 'error')
+                return redirect(url_for('approve_request'))
+            
+            current_request = result[0]
+            
+            if action == 'APPROVE':
+                if not approved_discount_value:
+                    flash("Approved amount is required for approval.", "error")
+                    return redirect(url_for('approve_request'))
+                
+                try:
+                    approved_amount = float(approved_discount_value)
+                    if approved_amount <= 0:
+                        flash("Approved amount must be greater than 0.", "error")
+                        return redirect(url_for('approve_request'))
+                except ValueError:
+                    flash("Invalid approved amount.", "error")
+                    return redirect(url_for('approve_request'))
+                
+                # Determine new status and update fields based on approver level
+                if approver_level == 'L1':
+                    if current_request['status'] != 'PENDING_L1':
+                        flash('This request is not pending L1 approval.', 'error')
+                        return redirect(url_for('approve_request'))
+                    
+                    new_status = 'PENDING_L2'
+                    update_query = f"""
+                        UPDATE `{project_id}.{dataset_id}.discount_requests`
+                        SET status = @status, 
+                            discounted_fees = @approved_amount,
+                            net_discount = @net_discount,
+                            l1_approver = @approver_email,
+                            l1_approved_at = @approved_at,
+                            l1_comments = @comments
+                        WHERE enquiry_no = @enquiry_no
+                    """
+                    net_discount = current_request['mrp'] - approved_amount
+                    
+                elif approver_level == 'L2':
+                    if current_request['status'] != 'PENDING_L2':
+                        flash('This request is not pending L2 approval.', 'error')
+                        return redirect(url_for('approve_request'))
+                    
+                    new_status = 'APPROVED'
+                    update_query = f"""
+                        UPDATE `{project_id}.{dataset_id}.discount_requests`
+                        SET status = @status, 
+                            discounted_fees = @approved_amount,
+                            net_discount = @net_discount,
+                            l2_approver = @approver_email,
+                            l2_approved_at = @approved_at,
+                            l2_comments = @comments
+                        WHERE enquiry_no = @enquiry_no
+                    """
+                    net_discount = current_request['mrp'] - approved_amount
+                
+                params = [
+                    bigquery.ScalarQueryParameter('status', 'STRING', new_status),
+                    bigquery.ScalarQueryParameter('approved_amount', 'FLOAT', approved_amount),
+                    bigquery.ScalarQueryParameter('net_discount', 'FLOAT', net_discount),
+                    bigquery.ScalarQueryParameter('approver_email', 'STRING', logged_in_email),
+                    bigquery.ScalarQueryParameter('approved_at', 'STRING', datetime.now(timezone.utc).isoformat()),
+                    bigquery.ScalarQueryParameter('comments', 'STRING', approver_comments),
                     bigquery.ScalarQueryParameter('enquiry_no', 'STRING', request_id)
                 ]
-            )
-            result = client.query(query, job_config=job_config).result()
-            discount_request = list(result)[0] if result else None
-
-            if not discount_request:
-                logger.warning(f"Discount request not found: enquiry_no={request_id}")
-                flash('Discount request not found', 'error')
-                return redirect(url_for('approve_request'))
-
-            logger.info(f"Discount request details: {discount_request}")
-
-            # Validate approved amount
-            if action == 'APPROVE' and (not approved_discount_value or not approved_discount_value.strip()):
-                logger.warning("Approved Discount is required and cannot be empty for approval.")
-                flash("Approved Discount is required and cannot be empty for approval.", "error")
-                return redirect(url_for('approve_request'))
-
-            try:
-                new_discounted_fees = float(approved_discount_value)
-            except ValueError as e:
-                logger.error(f"Invalid approved discount value: {e}")
-                flash("Invalid approved discount value provided.", "error")
-                return redirect(url_for('approve_request'))
-
-            # Handle branch authorization
-            approver_branches = approver['branch_name']
-            if 'All' not in approver_branches and discount_request['branch_name'] not in approver_branches:
-                logger.warning(f"Approver not authorized for branch: approver_branches={approver_branches}, request_branch={discount_request['branch_name']}")
-                flash('Not authorized to approve this branch', 'error')
-                return redirect(url_for('approve_request'))
-
-            update_data = {}
-            if action == 'APPROVE':
-                update_data['status'] = 'APPROVED_L1' if approver['level'] == 'L1' else 'APPROVED'
-                if new_discounted_fees > 0:
-                    update_data['discounted_fees'] = new_discounted_fees
-                    update_data['net_discount'] = discount_request['mrp'] - new_discounted_fees
-
+                
             elif action == 'REJECT':
-                update_data['status'] = 'REJECTED'
-
-            update_data[f"{approver['level'].lower()}_approver"] = logged_in_email
-
-            # Update request in BigQuery
-            query = f"""
-                UPDATE `{project_id}.{dataset_id}.discount_requests`
-                SET {', '.join(f'{k} = @{k}' for k in update_data.keys())}
-                WHERE enquiry_no = @enquiry_no
-            """
-            job_config = bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter('enquiry_no', 'STRING', request_id),
-                    *[bigquery.ScalarQueryParameter(k, 'STRING' if k.endswith('_approver') else 'FLOAT' if k in ['discounted_fees', 'net_discount'] else 'STRING', v) for k, v in update_data.items()]
-                ]
-            )
-            client.query(query, job_config=job_config)
-
-            logger.info(f"Discount request updated successfully: {update_data}")
-
-            # If L1 approved, notify L2 approver
-            if approver['level'] == 'L1' and action == 'APPROVE':
-                query = f"""
-                    SELECT email FROM `{project_id}.{dataset_id}.approvers`
-                    WHERE level = 'L2'
-                    LIMIT 1
+                # Rejection can happen at any level
+                update_query = f"""
+                    UPDATE `{project_id}.{dataset_id}.discount_requests`
+                    SET status = 'REJECTED',
+                        {approver_level.lower()}_approver = @approver_email,
+                        {approver_level.lower()}_approved_at = @approved_at,
+                        {approver_level.lower()}_comments = @comments
+                    WHERE enquiry_no = @enquiry_no
                 """
-                result = client.query(query).result()
-                l2_approver = list(result)[0]['email'] if list(result) else None
+                params = [
+                    bigquery.ScalarQueryParameter('approver_email', 'STRING', logged_in_email),
+                    bigquery.ScalarQueryParameter('approved_at', 'STRING', datetime.now(timezone.utc).isoformat()),
+                    bigquery.ScalarQueryParameter('comments', 'STRING', approver_comments),
+                    bigquery.ScalarQueryParameter('enquiry_no', 'STRING', request_id)
+                ]
+            
+            # Execute the update
+            job_config = bigquery.QueryJobConfig(query_parameters=params)
+            client.query(update_query, job_config=job_config).result()
+            
+            # Send notifications
+            if action == 'APPROVE':
+                if approver_level == 'L1':
+                    # Notify L2 approvers
+                    l2_approvers = get_approvers_for_branch(user_branch, 'L2')
+                    if l2_approvers:
+                        approver_emails = [email for email, name in l2_approvers]
+                        subject = f"L2 Approval Required - {request_id}"
+                        body = f"""
+A discount request has been approved at L1 level and requires your L2 approval.
 
-                if l2_approver:
-                    send_email(
-                        l2_approver,
-                        'Discount Request for L2 Approval',
-                        f'A discount request has been approved by L1 for {discount_request["student_name"]}.'
-                        f'\nPlease review at: {url_for("approve_request", _external=True)}'
-                    )
+Request Details:
+- Enquiry No: {request_id}
+- Student Name: {current_request['student_name']}
+- Branch: {current_request['branch_name']}
+- L1 Approved Amount: ₹{approved_amount}
+- L1 Approver: {logged_in_email}
 
-            flash('Request processed successfully', 'success')
+Please login to the Discount Management System to review and approve this request.
+                        """
+                        send_notification_email(approver_emails, subject, body)
+                    
+                    flash(f'Request #{request_id} approved at L1 level! L2 approvers have been notified.', 'success')
+                else:  # L2
+                    flash(f'Request #{request_id} fully approved!', 'success')
+            else:
+                flash(f'Request #{request_id} rejected successfully!', 'success')
+                
             return redirect(url_for('approve_request'))
 
         except Exception as e:
             logger.error(f"Error processing approve request: {e}")
-            flash('An error occurred while processing your request. Please try again later.', 'error')
+            flash(f'An error occurred while processing your request: {str(e)}', 'error')
             return redirect(url_for('approve_request'))
 
     try:
-        # Get pending requests
+        # Get pending requests for the user's branch and level
+        if approver_level == 'L1':
+            status_filter = 'PENDING_L1'
+        else:  # L2
+            status_filter = 'PENDING_L2'
+        
         query = f"""
-            SELECT * FROM (
-                SELECT *, ROW_NUMBER() OVER (PARTITION BY enquiry_no ORDER BY created_at DESC) as rn 
-                FROM `{project_id}.{dataset_id}.discount_requests`
-                WHERE status IN ('PENDING', 'APPROVED_L1')
-            ) 
-            WHERE rn = 1
+            SELECT * FROM `{project_id}.{dataset_id}.discount_requests`
+            WHERE status = @status AND branch_name = @branch_name
+            ORDER BY created_at DESC
         """
-        logger.info(f"Executing refined query to fetch pending requests: {query}")
-        result = client.query(query).result()
+        params = [
+            bigquery.ScalarQueryParameter('status', 'STRING', status_filter),
+            bigquery.ScalarQueryParameter('branch_name', 'STRING', user_branch)
+        ]
+        job_config = bigquery.QueryJobConfig(query_parameters=params)
+        result = client.query(query, job_config=job_config).result()
         requests = list(result)
-        logger.info(f"Pending requests fetched successfully: {requests}")
+        
         return render_template('approve_request.html', 
-                          requests=requests, 
-                          approver_level=session.get('approver_level', 'Unknown'))
+                             requests=requests, 
+                             approver_level=approver_level,
+                             user_branch=user_branch)
     except Exception as e:
         logger.error(f"Error fetching pending requests: {e}")
         flash('An error occurred while fetching pending requests. Please try again later.', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('dashboard'))
+
 
 # Add new routes for redesigned UI
 def get_dashboard_stats():
@@ -459,6 +775,7 @@ def get_dashboard_stats():
         return 0, 0, 0, 0, []
 
 @app.route('/dashboard')
+@require_auth
 def dashboard():
     total_requests, pending_requests, approved_requests, rejected_requests, recent_requests = get_dashboard_stats()
     return render_template(
@@ -470,13 +787,7 @@ def dashboard():
         recent_requests=recent_requests
     )
 
-@app.route('/analytics')
-def analytics():
-    return render_template('analytics.html')
 
-@app.route('/settings')
-def settings():
-    return render_template('settings.html')
 
 # Add to app.py
 def parse_datetime(value):
@@ -498,16 +809,7 @@ def datetimeformat(value, format='%b %d, %Y %I:%M %p'):
     except Exception:
         return str(value)
 
-@app.route('/test_adc')
-def test_adc():
-    try:
-        from google.auth import default
-        credentials, project = default()
-        logger.info(f"ADC credentials loaded successfully for project: {project}")
-        return jsonify({'status': 'success', 'project': project})
-    except Exception as e:
-        logger.error(f"Error loading ADC credentials: {e}")
-        return jsonify({'status': 'error', 'message': str(e)})
+
 
 @app.route('/test_bigquery')
 def test_bigquery():
@@ -638,6 +940,21 @@ def inject_dashboard_stats():
         'rejected_requests': rejected_requests,
         'recent_requests': recent_requests
     }
+
+
+
+@app.route('/api/cards/<branch_name>')
+def get_cards_api(branch_name):
+    """API endpoint to get cards for a branch"""
+    cards = get_cards_for_branch(branch_name)
+    return jsonify(cards)
+
+
+@app.route('/api/mrp/<branch_name>/<card_name>')
+def get_mrp_api(branch_name, card_name):
+    """API endpoint to get MRP for branch and card"""
+    mrp = get_mrp_for_branch_card(branch_name, card_name)
+    return jsonify({'mrp': mrp})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORT)

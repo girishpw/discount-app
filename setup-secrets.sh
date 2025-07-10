@@ -19,8 +19,8 @@ create_secret() {
         echo "✅ Secret '$secret_name' already exists"
     else
         echo "🔨 Creating secret '$secret_name'..."
-        read -p "Enter value for $secret_name ($description): " -s secret_value
-        echo ""
+        echo "📝 Please enter value for $secret_name ($description):"
+        read secret_value
         echo "$secret_value" | gcloud secrets create "$secret_name" --data-file=- --project="$PROJECT_ID"
         echo "✅ Secret '$secret_name' created successfully"
     fi

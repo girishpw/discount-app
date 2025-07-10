@@ -11,11 +11,12 @@
             theme: {
                 extend: {
                     colors: {
-                        primary: '#2563eb',
-                        secondary: '#1e40af',
-                        accent: '#3b82f6',
-                        light: '#f8fafc',
-                        dark: '#0f172a'
+                        'primary-magenta': '#d946ef',
+                        'dark-magenta': '#a21caf',
+                        'cyan': '#06b6d4',
+                        'dark-cyan': '#0891b2',
+                        'black': '#000000',
+                        'white': '#ffffff'
                     }
                 }
             }
@@ -24,9 +25,20 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         
+        :root {
+            --primary-magenta: #d946ef;
+            --dark-magenta: #a21caf;
+            --cyan: #06b6d4;
+            --dark-cyan: #0891b2;
+            --black: #000000;
+            --white: #ffffff;
+            --gray-light: #f8fafc;
+            --gray-medium: #64748b;
+        }
+        
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f8fafc;
+            background: linear-gradient(135deg, var(--gray-light) 0%, #e2e8f0 100%);
         }
         
         .dashboard-container {
@@ -77,7 +89,7 @@
         
         .card:hover {
             transform: translateY(-5px);
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 10px 25px -5px rgba(217, 70, 239, 0.2);
         }
         
         .btn {
@@ -87,20 +99,22 @@
         }
         
         .btn-primary {
-            background: linear-gradient(135deg, #2563eb, #1e40af);
+            background: linear-gradient(135deg, var(--primary-magenta), var(--dark-magenta));
+            color: var(--white);
         }
         
         .btn-primary:hover {
-            background: linear-gradient(135deg, #1e40af, #2563eb);
+            background: linear-gradient(135deg, var(--dark-magenta), var(--primary-magenta));
             transform: translateY(-2px);
         }
         
         .btn-secondary {
-            background: linear-gradient(135deg, #475569, #334155);
+            background: linear-gradient(135deg, var(--cyan), var(--dark-cyan));
+            color: var(--white);
         }
         
         .btn-secondary:hover {
-            background: linear-gradient(135deg, #334155, #475569);
+            background: linear-gradient(135deg, var(--dark-cyan), var(--cyan));
             transform: translateY(-2px);
         }
         
@@ -111,12 +125,12 @@
         }
         
         .form-control:focus {
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+            border-color: var(--primary-magenta);
+            box-shadow: 0 0 0 3px rgba(217, 70, 239, 0.2);
         }
         
         .stat-card {
-            border-left: 4px solid #2563eb;
+            border-left: 4px solid var(--primary-magenta);
         }
         
         .mobile-menu-btn {
@@ -130,7 +144,7 @@
         }
         
         .request-card {
-            border-left: 4px solid #3b82f6;
+            border-left: 4px solid var(--cyan);
         }
         
         .request-card.pending {
@@ -143,6 +157,25 @@
         
         .request-card.rejected {
             border-left-color: #ef4444;
+        }
+        
+        .sidebar {
+            background: linear-gradient(135deg, var(--black) 0%, #1e1e1e 50%, var(--dark-magenta) 100%);
+        }
+        
+        .nav-link {
+            color: rgba(255, 255, 255, 0.8);
+            transition: all 0.3s ease;
+        }
+        
+        .nav-link:hover {
+            background: rgba(217, 70, 239, 0.2);
+            color: var(--white);
+        }
+        
+        .nav-link-active {
+            background: linear-gradient(135deg, var(--primary-magenta) 0%, var(--cyan) 100%);
+            color: var(--white);
         }
     </style>
 </head>
