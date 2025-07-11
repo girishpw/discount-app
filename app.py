@@ -21,7 +21,7 @@ PORT = int(os.environ.get("PORT", 8080))
 
 # Replace hardcoded sensitive information with environment variables
 EMAIL_SENDER = os.getenv('EMAIL_SENDER', 'girish.chandra@pw.live')
-EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'EcoTiger#0705')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'xiwsizilkqljxifm')
 SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
 SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
 
@@ -273,7 +273,8 @@ def get_approvers_for_branch(branch_name, level):
 
 
 def send_notification_email(to_emails, subject, body):
-    """Send notification email to multiple recipients"""
+    """Send notification email with detailed debugging"""
+    logger.info(f"Email Debug: Sender={EMAIL_SENDER}, Recipients={to_emails}")
     try:
         for email in to_emails:
             msg = MIMEText(body)
@@ -285,11 +286,12 @@ def send_notification_email(to_emails, subject, body):
                 server.starttls()
                 server.login(EMAIL_SENDER, EMAIL_PASSWORD)
                 server.send_message(msg)
-        
-        logger.info(f"Notification emails sent to {to_emails}")
         return True
+    except smtplib.SMTPAuthenticationError as e:
+        logger.error(f"SMTP Auth Error: {e}")
+        return False
     except Exception as e:
-        logger.error(f"Failed to send notification emails: {e}")
+        logger.error(f"Email Error: {e}")
         return False
 
 
@@ -870,6 +872,15 @@ def get_mrp_api(branch_name, card_name):
     """API endpoint to get MRP for branch and card"""
     mrp = get_mrp_for_branch_card(branch_name, card_name)
     return jsonify({'mrp': mrp})
+
+@app.route('/test_email')
+def test_email():
+    if 'logged_in_email' not in session:
+        return '<h2>Please login first</h2><a href="/login">Login</a>'
+    
+    success = send_notification_email([session['logged_in_email']], 
+                                    "Test Email", "Test successful!")
+    return f"<h2>Test Result: {'SUCCESS' if success else 'FAILED'}</h2>"
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORT)
