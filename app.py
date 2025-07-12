@@ -7,8 +7,7 @@ from google.cloud import secretmanager
 from google.oauth2 import service_account
 import smtplib
 from email.mime.text import MIMEText
-import json
-from datetime import datetime,timezone
+from datetime import datetime, timezone
 from functools import wraps
 
 # Configure logging
@@ -173,7 +172,7 @@ def get_branches():
     try:
         query = f"""
             SELECT DISTINCT branch_name
-            FROM `{project_id}.{dataset_id}.branch_crads_fees`
+            FROM `{project_id}.{dataset_id}.branch_cards_fees`
             ORDER BY branch_name
         """
         result = client.query(query).result()
@@ -192,7 +191,7 @@ def get_cards_for_branch(branch_name):
     try:
         query = f"""
             SELECT DISTINCT card_name
-            FROM `{project_id}.{dataset_id}.branch_crads_fees`
+            FROM `{project_id}.{dataset_id}.branch_cards_fees`
             WHERE branch_name = @branch_name
             ORDER BY card_name
         """
@@ -217,7 +216,7 @@ def get_mrp_for_branch_card(branch_name, card_name):
     try:
         query = f"""
             SELECT mrp
-            FROM `{project_id}.{dataset_id}.branch_crads_fees`
+            FROM `{project_id}.{dataset_id}.branch_cards_fees`
             WHERE branch_name = @branch_name AND card_name = @card_name
         """
         job_config = bigquery.QueryJobConfig(
@@ -277,7 +276,7 @@ def send_notification_email(to_emails, subject, body):
     logger.info(f"Email Debug: Sender={EMAIL_SENDER}, Recipients={to_emails}")
     try:
         for email in to_emails:
-            msg = MIMEText(body)
+            msg = MIMEText(body, 'html')
             msg['Subject'] = subject
             msg['From'] = EMAIL_SENDER
             msg['To'] = email
@@ -360,7 +359,7 @@ def send_email(to_email, subject, body):
 def track_logged_in_user():
     # Only log if the key exists, don't try to access it
     if 'logged_in_email' in session:
-        logger.info(f"Session contains logged-in email")
+        logger.info("Session contains logged-in email")
     else:
         logger.info("No logged-in user found in session")
 
@@ -478,32 +477,38 @@ def request_discount():
                 insert_config = bigquery.QueryJobConfig(query_parameters=insert_params)
                 client.query(insert_query, insert_config).result()
                 
-                # Notify L1 approvers
-                l1_approvers = get_approvers_for_branch(branch_name, 'L1')
-                if l1_approvers:
-                    approver_emails = [email for email, name in l1_approvers]
-                    subject = f"New Discount Request - {enquiry_no}"
-                    body = f"""
-A new discount request has been submitted and requires your approval.
-
-Request Details:
-- Enquiry No: {enquiry_no}
-- Student Name: {data['student_name']}
-- Branch: {branch_name}
-- Card: {card_name}
-- MRP: ₹{data['mrp']}
-- Requested Discounted Fees: ₹{discounted_fees}
-- Discount Amount: ₹{data['net_discount']}
-- Reason: {data['reason']}
-- Requested by: {data['requester_name']} ({data['requester_email']})
-
-Please login to the Discount Management System to review and approve this request.
-                    """
-                    send_notification_email(approver_emails, subject, body)
-                
-                flash('Discount request submitted successfully! L1 approvers have been notified.', 'success')
-                return redirect(url_for('request_discount'))
-            
+            # Notify L1 approvers
+            l1_approvers = get_approvers_for_branch(branch_name, 'L1')
+            if l1_approvers:
+                approver_emails = [email for email, name in l1_approvers]
+                subject = f"New Discount Request - {enquiry_no}"
+                body = f"""
+                    <html><body style='font-family: Arial, sans-serif;'>
+                    <h2 style='color:#4CAF50;'>New Discount Request - L1 Approval Required</h2>
+                    <p>A new discount request has been submitted and requires your approval.</p>
+                    <table style='border-collapse:collapse;'>
+                    <tr><td><b>Enquiry No:</b></td><td>{enquiry_no}</td></tr>
+                    <tr><td><b>Student Name:</b></td><td>{data['student_name']}</td></tr>
+                    <tr><td><b>Mobile No:</b></td><td>{data['mobile_no']}</td></tr>
+                    <tr><td><b>Branch:</b></td><td>{branch_name}</td></tr>
+                    <tr><td><b>Card:</b></td><td>{card_name}</td></tr>
+                    <tr><td><b>MRP:</b></td><td>₹{data['mrp']:,.2f}</td></tr>
+                    <tr><td><b>Requested Discounted Fees:</b></td><td>₹{discounted_fees:,.2f}</td></tr>
+                    <tr><td><b>Discount Amount:</b></td><td>₹{data['net_discount']:,.2f}</td></tr>
+                    <tr><td><b>Reason:</b></td><td>{data['reason']}</td></tr>
+                    <tr><td><b>Requested by:</b></td><td>{data['requester_name']} ({data['requester_email']})</td></tr>
+                    </table>
+                    <p style='margin-top:20px;'>
+                    <a href='https://discount-app-644139762582.asia-south2.run.app/login' style='background:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;'>Login to Approve</a>
+                    <a href='https://discount-app-644139762582.asia-south2.run.app/approve_request' style='background:#28a745;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;margin-left:10px;'>Go to Approval Page</a>
+                    </p>
+                    <p style='color:#888;font-size:12px;margin-top:30px;'>This is an automated notification from the Discount Management System.<br>Physics Wallah</p>
+                    </body></html>
+                """
+                send_notification_email(approver_emails, subject, body)
+                            
+            flash('Discount request submitted successfully! L1 approvers have been notified.', 'success')
+            return redirect(url_for('request_discount'))
         except Exception as e:
             logger.error(f"Error processing discount request: {e}")
             flash('An error occurred while processing your request. Please try again.', 'error')
@@ -648,27 +653,36 @@ def approve_request():
                         approver_emails = [email for email, name in l2_approvers]
                         subject = f"L2 Approval Required - {request_id}"
                         body = f"""
-A discount request has been approved at L1 level and requires your L2 approval.
-
-Request Details:
-- Enquiry No: {request_id}
-- Student Name: {current_request['student_name']}
-- Branch: {current_request['branch_name']}
-- L1 Approved Amount: ₹{approved_amount}
-- L1 Approver: {logged_in_email}
-
-Please login to the Discount Management System to review and approve this request.
+<html><body style='font-family: Arial, sans-serif;'>
+<h2 style='color:#ff9800;'>L2 Approval Required - Request Approved at L1</h2>
+<p>A discount request has been <b>approved at L1 level</b> and now requires your L2 approval.</p>
+<table style='border-collapse:collapse;'>
+<tr><td><b>Enquiry No:</b></td><td>{request_id}</td></tr>
+<tr><td><b>Student Name:</b></td><td>{current_request['student_name']}</td></tr>
+<tr><td><b>Branch:</b></td><td>{current_request['branch_name']}</td></tr>
+<tr><td><b>Card:</b></td><td>{current_request['card_name']}</td></tr>
+<tr><td><b>Original MRP:</b></td><td>₹{current_request['mrp']:,.2f}</td></tr>
+<tr><td><b>L1 Approved Amount:</b></td><td>₹{approved_amount:,.2f}</td></tr>
+<tr><td><b>Net Discount:</b></td><td>₹{net_discount:,.2f}</td></tr>
+<tr><td><b>L1 Approver:</b></td><td>{logged_in_email}</td></tr>
+<tr><td><b>Original Requester:</b></td><td>{current_request['requester_name']} ({current_request['requester_email']})</td></tr>
+</table>
+<p style='margin-top:20px;'>
+<a href='https://discount-app-644139762582.asia-south2.run.app/login' style='background:#007bff;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;'>Login to Approve</a>
+<a href='https://discount-app-644139762582.asia-south2.run.app/approve_request' style='background:#28a745;color:#fff;padding:10px 20px;text-decoration:none;border-radius:5px;margin-left:10px;'>Go to Approval Page</a>
+</p>
+<p style='color:#888;font-size:12px;margin-top:30px;'>This is an automated notification from the Discount Management System.<br>Physics Wallah</p>
+</body></html>
                         """
                         send_notification_email(approver_emails, subject, body)
                     
                     flash(f'Request #{request_id} approved at L1 level! L2 approvers have been notified.', 'success')
                 else:  # L2
                     flash(f'Request #{request_id} fully approved!', 'success')
+                return redirect(url_for('approve_request'))
             else:
                 flash(f'Request #{request_id} rejected successfully!', 'success')
-                
-            return redirect(url_for('approve_request'))
-
+                return redirect(url_for('approve_request'))
         except Exception as e:
             logger.error(f"Error processing approve request: {e}")
             flash(f'An error occurred while processing your request: {str(e)}', 'error')
@@ -725,8 +739,8 @@ def get_dashboard_stats():
         stats_query = f"""
             SELECT
                 COUNT(*) as total,
-                SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending,
-                SUM(CASE WHEN status LIKE 'APPROVED%' THEN 1 ELSE 0 END) as approved,
+                SUM(CASE WHEN status LIKE 'PENDING%' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'APPROVED' THEN 1 ELSE 0 END) as approved,
                 SUM(CASE WHEN status = 'REJECTED' THEN 1 ELSE 0 END) as rejected
             FROM `{project_id}.{dataset_id}.discount_requests`
         """
@@ -810,16 +824,15 @@ def setup_bigquery_credentials():
     """Setup BigQuery credentials from Secret Manager if available"""
     try:
         # In Cloud Run, service account is automatically available
-        # Skip Secret Manager setup if we're in production with service account
         if os.getenv('K_SERVICE'):  # Cloud Run environment
             logger.info("Running in Cloud Run, using service account authentication")
             return
-            
+
         # Skip Secret Manager setup if credentials are already available
         if os.getenv('GOOGLE_APPLICATION_CREDENTIALS') and os.path.exists(os.getenv('GOOGLE_APPLICATION_CREDENTIALS')):
             logger.info("Using existing service account credentials")
             return
-        
+
         # Try to get credentials from Secret Manager (for local development)
         secret_client = secretmanager.SecretManagerServiceClient()
         secret_path = f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT', project_id)}/secrets/{SECRET_NAME}/versions/latest"
