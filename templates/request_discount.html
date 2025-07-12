@@ -51,10 +51,10 @@
                             Enquiry No. / Registration No. *
                         </label>
                         <input type="text" id="enquiry_no" name="enquiry_no" required 
-                               pattern="EN[0-9]{8}" 
-                               placeholder="EN12345678"
+                               pattern="EN[0-9]{9}" 
+                               placeholder="EN123456789"
                                class="form-control w-full px-4 py-3 border border-gray-300 rounded-lg transition">
-                        <p class="text-xs text-gray-500 mt-1">Format: EN followed by 8 digits (e.g., EN12345678)</p>
+                        <p class="text-xs text-gray-500 mt-1">Format: EN followed by 9 digits (e.g., EN123456789)</p>
                     </div>
 
                     <div>
@@ -184,8 +184,24 @@ async function loadCards() {
     
     if (branchSelect.value) {
         try {
+            console.log('Loading cards for branch:', branchSelect.value);
             const response = await fetch(`/api/cards/${encodeURIComponent(branchSelect.value)}`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
             const cards = await response.json();
+            console.log('Cards loaded:', cards);
+            
+            if (cards.length === 0) {
+                console.warn('No cards found for branch:', branchSelect.value);
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No cards available';
+                cardSelect.appendChild(option);
+                return;
+            }
             
             cards.forEach(card => {
                 const option = document.createElement('option');
@@ -195,7 +211,7 @@ async function loadCards() {
             });
         } catch (error) {
             console.error('Error loading cards:', error);
-            alert('Error loading cards. Please try again.');
+            alert('Error loading cards: ' + error.message);
         }
     }
 }
@@ -207,18 +223,26 @@ async function loadMRP() {
     
     if (branchSelect.value && cardSelect.value) {
         try {
+            console.log('Loading MRP for branch:', branchSelect.value, 'card:', cardSelect.value);
             const response = await fetch(`/api/mrp/${encodeURIComponent(branchSelect.value)}/${encodeURIComponent(cardSelect.value)}`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
             const data = await response.json();
+            console.log('MRP data:', data);
             
             if (data.mrp) {
                 mrpInput.value = data.mrp;
                 calculateDiscount();
             } else {
+                console.warn('No MRP found for branch:', branchSelect.value, 'card:', cardSelect.value);
                 alert('MRP not found for this branch and card combination.');
             }
         } catch (error) {
             console.error('Error loading MRP:', error);
-            alert('Error loading MRP. Please try again.');
+            alert('Error loading MRP: ' + error.message);
         }
     }
 }

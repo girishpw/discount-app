@@ -110,7 +110,7 @@ def require_permission(permission):
 
 def validate_enquiry_no(enquiry_no):
     """Validate enquiry number format EN********* (8 digits)"""
-    pattern = r'^EN\d{8}$'
+    pattern = r'^EN\d{9}$'
     return re.match(pattern, enquiry_no) is not None
 
 
@@ -167,6 +167,7 @@ def get_branches():
     """Get unique branches from branch_cards_fees table"""
     client = get_bigquery_client()
     if not client:
+        logger.error("BigQuery client not available for get_branches")
         return []
     
     try:
@@ -175,8 +176,11 @@ def get_branches():
             FROM `{project_id}.{dataset_id}.branch_cards_fees`
             ORDER BY branch_name
         """
+        logger.info(f"Executing query: {query}")
         result = client.query(query).result()
-        return [row.branch_name for row in result]
+        branches = [row.branch_name for row in result]
+        logger.info(f"Found {len(branches)} branches: {branches}")
+        return branches
     except Exception as e:
         logger.error(f"Error fetching branches: {e}")
         return []
@@ -186,6 +190,7 @@ def get_cards_for_branch(branch_name):
     """Get cards for a specific branch"""
     client = get_bigquery_client()
     if not client:
+        logger.error("BigQuery client not available for get_cards_for_branch")
         return []
     
     try:
@@ -200,10 +205,13 @@ def get_cards_for_branch(branch_name):
                 bigquery.ScalarQueryParameter('branch_name', 'STRING', branch_name)
             ]
         )
+        logger.info(f"Executing query for branch {branch_name}: {query}")
         result = client.query(query, job_config=job_config).result()
-        return [row.card_name for row in result]
+        cards = [row.card_name for row in result]
+        logger.info(f"Found {len(cards)} cards for branch {branch_name}: {cards}")
+        return cards
     except Exception as e:
-        logger.error(f"Error fetching cards for branch: {e}")
+        logger.error(f"Error fetching cards for branch {branch_name}: {e}")
         return []
 
 
@@ -211,6 +219,7 @@ def get_mrp_for_branch_card(branch_name, card_name):
     """Get MRP for specific branch and card combination"""
     client = get_bigquery_client()
     if not client:
+        logger.error("BigQuery client not available for get_mrp_for_branch_card")
         return None
     
     try:
@@ -225,10 +234,17 @@ def get_mrp_for_branch_card(branch_name, card_name):
                 bigquery.ScalarQueryParameter('card_name', 'STRING', card_name)
             ]
         )
+        logger.info(f"Executing MRP query for branch {branch_name}, card {card_name}: {query}")
         result = list(client.query(query, job_config=job_config).result())
-        return float(result[0].mrp) if result else None
+        if result:
+            mrp = float(result[0].mrp)
+            logger.info(f"Found MRP: {mrp}")
+            return mrp
+        else:
+            logger.warning(f"No MRP found for branch {branch_name}, card {card_name}")
+            return None
     except Exception as e:
-        logger.error(f"Error fetching MRP: {e}")
+        logger.error(f"Error fetching MRP for branch {branch_name}, card {card_name}: {e}")
         return None
 
 
@@ -274,25 +290,58 @@ def get_approvers_for_branch(branch_name, level):
 def send_notification_email(to_emails, subject, body):
     """Send notification email with detailed debugging"""
     logger.info(f"Email Debug: Sender={EMAIL_SENDER}, Recipients={to_emails}")
+    logger.info(f"Email Debug: SMTP_SERVER={SMTP_SERVER}, SMTP_PORT={SMTP_PORT}")
+    
     try:
         for email in to_emails:
+            logger.info(f"Sending email to: {email}")
             msg = MIMEText(body, 'html')
             msg['Subject'] = subject
             msg['From'] = EMAIL_SENDER
             msg['To'] = email
             
             with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                logger.info("Connecting to SMTP server...")
                 server.starttls()
+                logger.info("Starting TLS...")
                 server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+                logger.info("Login successful")
                 server.send_message(msg)
+                logger.info(f"Email sent successfully to {email}")
         return True
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"SMTP Auth Error: {e}")
+        logger.error(f"Please check email credentials for {EMAIL_SENDER}")
+        return False
+    except smtplib.SMTPException as e:
+        logger.error(f"SMTP Error: {e}")
         return False
     except Exception as e:
-        logger.error(f"Email Error: {e}")
+        logger.error(f"General Email Error: {e}")
         return False
 
+@app.route('/debug/config')
+def debug_config():
+    """Debug route to check configuration - remove in production"""
+    if 'logged_in_email' not in session:
+        return '<h2>Please login first</h2><a href="/login">Login</a>'
+    
+    config_info = {
+        'EMAIL_SENDER': EMAIL_SENDER,
+        'EMAIL_PASSWORD': '***' if EMAIL_PASSWORD else 'NOT SET',
+        'SMTP_SERVER': SMTP_SERVER,
+        'SMTP_PORT': SMTP_PORT,
+        'BIGQUERY_PROJECT': project_id,
+        'BIGQUERY_DATASET': dataset_id,
+        'BIGQUERY_CLIENT': 'Available' if get_bigquery_client() else 'Not Available'
+    }
+    
+    html = '<h2>Configuration Debug</h2><ul>'
+    for key, value in config_info.items():
+        html += f'<li><b>{key}:</b> {value}</li>'
+    html += '</ul>'
+    
+    return html
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -876,15 +925,27 @@ def inject_dashboard_stats():
 @app.route('/api/cards/<branch_name>')
 def get_cards_api(branch_name):
     """API endpoint to get cards for a branch"""
-    cards = get_cards_for_branch(branch_name)
-    return jsonify(cards)
+    try:
+        logger.info(f"Getting cards for branch: {branch_name}")
+        cards = get_cards_for_branch(branch_name)
+        logger.info(f"Found {len(cards)} cards for branch {branch_name}: {cards}")
+        return jsonify(cards)
+    except Exception as e:
+        logger.error(f"Error in get_cards_api: {e}")
+        return jsonify([]), 500
 
 
 @app.route('/api/mrp/<branch_name>/<card_name>')
 def get_mrp_api(branch_name, card_name):
     """API endpoint to get MRP for branch and card"""
-    mrp = get_mrp_for_branch_card(branch_name, card_name)
-    return jsonify({'mrp': mrp})
+    try:
+        logger.info(f"Getting MRP for branch: {branch_name}, card: {card_name}")
+        mrp = get_mrp_for_branch_card(branch_name, card_name)
+        logger.info(f"Found MRP: {mrp}")
+        return jsonify({'mrp': mrp})
+    except Exception as e:
+        logger.error(f"Error in get_mrp_api: {e}")
+        return jsonify({'mrp': None}), 500
 
 @app.route('/test_email')
 def test_email():
