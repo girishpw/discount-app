@@ -215,16 +215,16 @@ def get_cards_for_branch(branch_name):
         return []
 
 
-def get_mrp_for_branch_card(branch_name, card_name):
-    """Get MRP for specific branch and card combination"""
+def get_mrp_installment_for_branch_card(branch_name, card_name):
+    """Get MRP and installment for specific branch and card combination"""
     client = get_bigquery_client()
     if not client:
-        logger.error("BigQuery client not available for get_mrp_for_branch_card")
+        logger.error("BigQuery client not available for get_mrp_installment_for_branch_card")
         return None
     
     try:
         query = f"""
-            SELECT mrp
+            SELECT mrp, installment
             FROM `{project_id}.{dataset_id}.branch_cards_fees`
             WHERE branch_name = @branch_name AND card_name = @card_name
         """
@@ -234,18 +234,24 @@ def get_mrp_for_branch_card(branch_name, card_name):
                 bigquery.ScalarQueryParameter('card_name', 'STRING', card_name)
             ]
         )
-        logger.info(f"Executing MRP query for branch {branch_name}, card {card_name}: {query}")
+        logger.info(f"Executing MRP and installment query for branch {branch_name}, card {card_name}: {query}")
         result = list(client.query(query, job_config=job_config).result())
         if result:
             mrp = float(result[0].mrp)
-            logger.info(f"Found MRP: {mrp}")
-            return mrp
+            installment = float(result[0].installment)
+            logger.info(f"Found MRP: {mrp}, Installment: {installment}")
+            return {'mrp': mrp, 'installment': installment}
         else:
-            logger.warning(f"No MRP found for branch {branch_name}, card {card_name}")
+            logger.warning(f"No MRP/installment found for branch {branch_name}, card {card_name}")
             return None
     except Exception as e:
-        logger.error(f"Error fetching MRP for branch {branch_name}, card {card_name}: {e}")
+        logger.error(f"Error fetching MRP/installment for branch {branch_name}, card {card_name}: {e}")
         return None
+
+def get_mrp_for_branch_card(branch_name, card_name):
+    """Get MRP for specific branch and card combination - backward compatibility"""
+    data = get_mrp_installment_for_branch_card(branch_name, card_name)
+    return data['mrp'] if data else None
 
 
 def get_approvers_for_branch(branch_name, level):
@@ -288,8 +294,16 @@ def get_approvers_for_branch(branch_name, level):
 
 
 def send_notification_email(to_emails, subject, body):
-    """Send notification email with detailed debugging"""
-    logger.info(f"Email Debug: Sender={EMAIL_SENDER}, Recipients={to_emails}")
+    """Send notification email with CC recipients and detailed debugging"""
+    # Required CC recipients as per problem statement
+    cc_emails = [
+        'prince.tiwari@pw.live',
+        'rohan.kumar1@pw.live', 
+        'sanover.naquvi@pw.live',
+        'Prashant.soni@pw.live'
+    ]
+    
+    logger.info(f"Email Debug: Sender={EMAIL_SENDER}, Recipients={to_emails}, CC={cc_emails}")
     logger.info(f"Email Debug: SMTP_SERVER={SMTP_SERVER}, SMTP_PORT={SMTP_PORT}")
     
     try:
@@ -299,6 +313,11 @@ def send_notification_email(to_emails, subject, body):
             msg['Subject'] = subject
             msg['From'] = EMAIL_SENDER
             msg['To'] = email
+            # Add CC recipients
+            msg['Cc'] = ', '.join(cc_emails)
+            
+            # Combine TO and CC for actual sending
+            all_recipients = [email] + cc_emails
             
             with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
                 logger.info("Connecting to SMTP server...")
@@ -306,8 +325,8 @@ def send_notification_email(to_emails, subject, body):
                 logger.info("Starting TLS...")
                 server.login(EMAIL_SENDER, EMAIL_PASSWORD)
                 logger.info("Login successful")
-                server.send_message(msg)
-                logger.info(f"Email sent successfully to {email}")
+                server.send_message(msg, to_addrs=all_recipients)
+                logger.info(f"Email sent successfully to {email} with CC to {cc_emails}")
         return True
     except smtplib.SMTPAuthenticationError as e:
         logger.error(f"SMTP Auth Error: {e}")
@@ -390,19 +409,8 @@ def logout():
     return redirect(url_for('login'))
 
 def send_email(to_email, subject, body):
-    try:
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = EMAIL_SENDER
-        msg['To'] = to_email
-        
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            server.send_message(msg)
-        logger.info(f"Email sent successfully to {to_email}")
-    except Exception as e:
-        logger.error(f"Failed to send email to {to_email}: {e}")
+    """Send email using the updated notification system with CC"""
+    return send_notification_email([to_email], subject, body)
 
 @app.before_request
 def track_logged_in_user():
@@ -441,27 +449,48 @@ def request_discount():
             branch_name = request.form['branch_name']
             card_name = request.form['card_name']
             
-            # Validate MRP from database
-            db_mrp = get_mrp_for_branch_card(branch_name, card_name)
-            if not db_mrp:
+            # Validate MRP and installment from database
+            db_data = get_mrp_installment_for_branch_card(branch_name, card_name)
+            if not db_data:
                 flash('Invalid branch and card combination.', 'error')
                 return redirect(url_for('request_discount'))
             
+            db_mrp = db_data['mrp']
+            db_installment = db_data['installment']
+            
             form_mrp = float(request.form['mrp'])
+            form_installment = float(request.form['installment'])
+            
             if abs(form_mrp - db_mrp) > 0.01:  # Allow small floating point differences
                 flash(f'MRP mismatch. Expected: ₹{db_mrp}, Provided: ₹{form_mrp}', 'error')
                 return redirect(url_for('request_discount'))
+                
+            if abs(form_installment - db_installment) > 0.01:  # Allow small floating point differences  
+                flash(f'Installment mismatch. Expected: ₹{db_installment}, Provided: ₹{form_installment}', 'error')
+                return redirect(url_for('request_discount'))
+
+            # Get discount amount and calculate percentage
+            discount_amount = float(request.form['discount_amount'])
+            discount_percentage = (discount_amount / db_installment) * 100
             
-            # Prepare data for insertion
-            discounted_fees = float(request.form['discounted_fees'])
+            # Validate discount percentage - must be greater than 30%
+            if discount_percentage <= 30:
+                flash('Use ERP for the discounts upto 30%, this portal can receive discounts requests which are greater than 30%.', 'error')
+                return redirect(url_for('request_discount'))
+            
+            # Calculate discounted fees
+            discounted_fees = db_mrp - discount_amount
             data = {
                 'enquiry_no': enquiry_no,
                 'student_name': request.form['student_name'],
                 'mobile_no': request.form['mobile_no'],
                 'card_name': card_name,
                 'mrp': db_mrp,
+                'installment': db_installment,
                 'discounted_fees': discounted_fees,
-                'net_discount': db_mrp - discounted_fees,
+                'discount_amount': discount_amount,
+                'discount_percentage': discount_percentage,
+                'net_discount': discount_amount,
                 'reason': request.form['reason'],
                 'remarks': request.form.get('remarks', ''),
                 'requester_email': session['logged_in_email'],
@@ -496,12 +525,13 @@ def request_discount():
                 # Insert new request
                 insert_query = f"""
                     INSERT INTO `{project_id}.{dataset_id}.discount_requests`
-                    (enquiry_no, student_name, mobile_no, card_name, mrp, discounted_fees, net_discount, 
-                     reason, remarks, requester_email, requester_name, branch_name, status, created_at, 
-                     l1_approver, l2_approver)
-                    VALUES (@enquiry_no, @student_name, @mobile_no, @card_name, @mrp, @discounted_fees, 
-                            @net_discount, @reason, @remarks, @requester_email, @requester_name, 
-                            @branch_name, @status, @created_at, @l1_approver, @l2_approver)
+                    (enquiry_no, student_name, mobile_no, card_name, mrp, installment, discounted_fees, 
+                     discount_amount, discount_percentage, net_discount, reason, remarks, requester_email, 
+                     requester_name, branch_name, status, created_at, l1_approver, l2_approver)
+                    VALUES (@enquiry_no, @student_name, @mobile_no, @card_name, @mrp, @installment, 
+                            @discounted_fees, @discount_amount, @discount_percentage, @net_discount, 
+                            @reason, @remarks, @requester_email, @requester_name, @branch_name, 
+                            @status, @created_at, @l1_approver, @l2_approver)
                 """
                 
                 insert_params = [
@@ -510,7 +540,10 @@ def request_discount():
                     bigquery.ScalarQueryParameter('mobile_no', 'STRING', data['mobile_no']),
                     bigquery.ScalarQueryParameter('card_name', 'STRING', data['card_name']),
                     bigquery.ScalarQueryParameter('mrp', 'FLOAT', data['mrp']),
+                    bigquery.ScalarQueryParameter('installment', 'FLOAT', data['installment']),
                     bigquery.ScalarQueryParameter('discounted_fees', 'FLOAT', data['discounted_fees']),
+                    bigquery.ScalarQueryParameter('discount_amount', 'FLOAT', data['discount_amount']),
+                    bigquery.ScalarQueryParameter('discount_percentage', 'FLOAT', data['discount_percentage']),
                     bigquery.ScalarQueryParameter('net_discount', 'FLOAT', data['net_discount']),
                     bigquery.ScalarQueryParameter('reason', 'STRING', data['reason']),
                     bigquery.ScalarQueryParameter('remarks', 'STRING', data['remarks']),
@@ -542,8 +575,10 @@ def request_discount():
                     <tr><td><b>Branch:</b></td><td>{branch_name}</td></tr>
                     <tr><td><b>Card:</b></td><td>{card_name}</td></tr>
                     <tr><td><b>MRP:</b></td><td>₹{data['mrp']:,.2f}</td></tr>
-                    <tr><td><b>Requested Discounted Fees:</b></td><td>₹{discounted_fees:,.2f}</td></tr>
-                    <tr><td><b>Discount Amount:</b></td><td>₹{data['net_discount']:,.2f}</td></tr>
+                    <tr><td><b>Installment:</b></td><td>₹{data['installment']:,.2f}</td></tr>
+                    <tr><td><b>Requested Discount Amount:</b></td><td>₹{discount_amount:,.2f}</td></tr>
+                    <tr><td><b>Discount Percentage:</b></td><td>{discount_percentage:.2f}%</td></tr>
+                    <tr><td><b>Discounted Fees:</b></td><td>₹{discounted_fees:,.2f}</td></tr>
                     <tr><td><b>Reason:</b></td><td>{data['reason']}</td></tr>
                     <tr><td><b>Requested by:</b></td><td>{data['requester_name']} ({data['requester_email']})</td></tr>
                     </table>
@@ -711,8 +746,10 @@ def approve_request():
 <tr><td><b>Branch:</b></td><td>{current_request['branch_name']}</td></tr>
 <tr><td><b>Card:</b></td><td>{current_request['card_name']}</td></tr>
 <tr><td><b>Original MRP:</b></td><td>₹{current_request['mrp']:,.2f}</td></tr>
-<tr><td><b>L1 Approved Amount:</b></td><td>₹{approved_amount:,.2f}</td></tr>
-<tr><td><b>Net Discount:</b></td><td>₹{net_discount:,.2f}</td></tr>
+<tr><td><b>Installment:</b></td><td>₹{current_request.get('installment', 0):,.2f}</td></tr>
+<tr><td><b>Discount Amount:</b></td><td>₹{net_discount:,.2f}</td></tr>
+<tr><td><b>Discount Percentage:</b></td><td>{(net_discount / current_request.get('installment', 1) * 100):,.2f}%</td></tr>
+<tr><td><b>L1 Approved Discounted Fees:</b></td><td>₹{approved_amount:,.2f}</td></tr>
 <tr><td><b>L1 Approver:</b></td><td>{logged_in_email}</td></tr>
 <tr><td><b>Original Requester:</b></td><td>{current_request['requester_name']} ({current_request['requester_email']})</td></tr>
 </table>
@@ -937,15 +974,19 @@ def get_cards_api(branch_name):
 
 @app.route('/api/mrp/<branch_name>/<card_name>')
 def get_mrp_api(branch_name, card_name):
-    """API endpoint to get MRP for branch and card"""
+    """API endpoint to get MRP and installment for branch and card"""
     try:
-        logger.info(f"Getting MRP for branch: {branch_name}, card: {card_name}")
-        mrp = get_mrp_for_branch_card(branch_name, card_name)
-        logger.info(f"Found MRP: {mrp}")
-        return jsonify({'mrp': mrp})
+        logger.info(f"Getting MRP and installment for branch: {branch_name}, card: {card_name}")
+        data = get_mrp_installment_for_branch_card(branch_name, card_name)
+        if data:
+            logger.info(f"Found MRP: {data['mrp']}, Installment: {data['installment']}")
+            return jsonify(data)
+        else:
+            logger.warning(f"No data found for branch: {branch_name}, card: {card_name}")
+            return jsonify({'mrp': None, 'installment': None})
     except Exception as e:
         logger.error(f"Error in get_mrp_api: {e}")
-        return jsonify({'mrp': None}), 500
+        return jsonify({'mrp': None, 'installment': None}), 500
 
 @app.route('/test_email')
 def test_email():
