@@ -75,6 +75,8 @@ def get_bigquery_client():
 
 def validate_pw_email(email):
     """Validate if email is from pw.live domain"""
+    if not email:
+        return False
     return email.endswith('@pw.live')
 
 
@@ -429,7 +431,7 @@ def index():
 
 @app.route('/_health')
 def health_check():
-    return jsonify({'status': 'healthy', 'timestamp': datetime.utcnow().isoformat(),'port': PORT}), 200
+    return jsonify({'status': 'healthy', 'timestamp': datetime.now(timezone.utc).isoformat(),'port': PORT}), 200
 
 
 @app.route('/request_discount', methods=['GET', 'POST'])

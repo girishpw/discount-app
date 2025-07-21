@@ -1,10 +1,23 @@
 steps:
+# Run tests before building
+- name: 'python:3.9-slim'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      pip install -r requirements.txt
+      python -m pytest --cov=app --cov-report=term --cov-fail-under=40 -v
+      echo "✅ All tests passed!"
+
+# Build Docker image
 - name: 'gcr.io/cloud-builders/docker'
   args: ['build', '-t', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-app', '.']
   
+# Push Docker image  
 - name: 'gcr.io/cloud-builders/docker'
   args: ['push', 'asia-south2-docker.pkg.dev/gewportal2025/cloud-run-source-deploy/discount-app/discount-app']
   
+# Deploy to Cloud Run
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: 'gcloud'
   args:
@@ -21,9 +34,29 @@ steps:
   - '--cpu=1'
   - '--min-instances=1'
   - '--max-instances=10'
+  - '--timeout=300'
+  - '--concurrency=80'
   - '--set-env-vars=GOOGLE_CLOUD_PROJECT=gewportal2025,SECRET_NAME=discount-key'
   - '--set-secrets=FLASK_SECRET_KEY=flask-secret-key:latest'
   - '--set-secrets=EMAIL_SENDER=email-sender:latest'
   - '--set-secrets=EMAIL_PASSWORD=email-password:latest'
   - '--set-secrets=GOOGLE_OAUTH_CLIENT_ID=oauth-client-id:latest'
   - '--set-secrets=GOOGLE_OAUTH_CLIENT_SECRET=oauth-client-secret:latest'
+
+# Post-deployment health check
+- name: 'gcr.io/cloud-builders/curl'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      # Wait for deployment to be ready
+      sleep 30
+      # Get the service URL
+      SERVICE_URL=$(gcloud run services describe discount-app --region=asia-south2 --format='value(status.url)')
+      # Health check
+      curl -f "$SERVICE_URL/_health" || exit 1
+      echo "✅ Deployment health check passed!"
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_STANDARD_2
