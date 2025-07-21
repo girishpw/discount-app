@@ -409,19 +409,8 @@ def logout():
     return redirect(url_for('login'))
 
 def send_email(to_email, subject, body):
-    try:
-        msg = MIMEText(body)
-        msg['Subject'] = subject
-        msg['From'] = EMAIL_SENDER
-        msg['To'] = to_email
-        
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
-            server.send_message(msg)
-        logger.info(f"Email sent successfully to {to_email}")
-    except Exception as e:
-        logger.error(f"Failed to send email to {to_email}: {e}")
+    """Send email using the updated notification system with CC"""
+    return send_notification_email([to_email], subject, body)
 
 @app.before_request
 def track_logged_in_user():
@@ -757,8 +746,10 @@ def approve_request():
 <tr><td><b>Branch:</b></td><td>{current_request['branch_name']}</td></tr>
 <tr><td><b>Card:</b></td><td>{current_request['card_name']}</td></tr>
 <tr><td><b>Original MRP:</b></td><td>₹{current_request['mrp']:,.2f}</td></tr>
-<tr><td><b>L1 Approved Amount:</b></td><td>₹{approved_amount:,.2f}</td></tr>
-<tr><td><b>Net Discount:</b></td><td>₹{net_discount:,.2f}</td></tr>
+<tr><td><b>Installment:</b></td><td>₹{current_request.get('installment', 0):,.2f}</td></tr>
+<tr><td><b>Discount Amount:</b></td><td>₹{net_discount:,.2f}</td></tr>
+<tr><td><b>Discount Percentage:</b></td><td>{(net_discount / current_request.get('installment', 1) * 100):,.2f}%</td></tr>
+<tr><td><b>L1 Approved Discounted Fees:</b></td><td>₹{approved_amount:,.2f}</td></tr>
 <tr><td><b>L1 Approver:</b></td><td>{logged_in_email}</td></tr>
 <tr><td><b>Original Requester:</b></td><td>{current_request['requester_name']} ({current_request['requester_email']})</td></tr>
 </table>
