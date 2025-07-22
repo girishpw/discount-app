@@ -253,31 +253,29 @@ def get_mrp_for_branch_card(branch_name, card_name):
 
 
 def get_approvers_for_branch(branch_name, level):
-    """Get approvers for a specific branch and level"""
     client = get_bigquery_client()
     if not client:
         return []
     
     try:
-        # Get approvers who can handle this branch specifically OR handle all branches
-        # For L1: Raja Ray for Kolkata/Siliguri/Bhubaneshwar, Praduman for others
         if level == 'L1':
-            if branch_name in ['Kolkata', 'Siliguri', 'Bhubaneshwar']:
-                approver_filter = "AND email = 'raja.ray@pw.live'"
-            else:
-                approver_filter = "AND email = 'praduman.shukla@pw.live'"
+            # Custom L1 logic remains, but use ARRAY_CONTAINS
+            query = f"""
+                SELECT email, name
+                FROM `{project_id}.{dataset_id}.authorized_persons`
+                WHERE is_active = true
+                AND approver_level = @level
+                AND (ARRAY_CONTAINS(@branch_name, branch_names) OR ARRAY_LENGTH(branch_names) = 0)  -- Empty array means 'ALL'
+            """
         else:
-            # L2 approvers handle all branches
-            approver_filter = ""
-            
-        query = f"""
-            SELECT email, name
-            FROM `{project_id}.{dataset_id}.authorized_persons`
-            WHERE (branch_name = @branch_name OR branch_name = 'ALL')
-            AND approver_level = @level 
-            AND is_active = true
-            {approver_filter}
-        """
+            query = f"""
+                SELECT email, name
+                FROM `{project_id}.{dataset_id}.authorized_persons`
+                WHERE is_active = true
+                AND approver_level = @level
+                AND (ARRAY_CONTAINS(@branch_name, branch_names) OR ARRAY_LENGTH(branch_names) = 0)
+            """
+        
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter('branch_name', 'STRING', branch_name),
