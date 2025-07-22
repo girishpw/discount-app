@@ -255,37 +255,40 @@ def get_mrp_for_branch_card(branch_name, card_name):
 def get_approvers_for_branch(branch_name, level):
     client = get_bigquery_client()
     if not client:
+        logger.error("BigQuery client not available for get_approvers_for_branch")
         return []
     
     try:
         if level == 'L1':
-            # Custom L1 logic remains, but use ARRAY_CONTAINS
-            query = f"""
-                SELECT email, name
-                FROM `{project_id}.{dataset_id}.authorized_persons`
-                WHERE is_active = true
-                AND approver_level = @level
-                AND (ARRAY_CONTAINS(@branch_name, branch_names) OR ARRAY_LENGTH(branch_names) = 0)  -- Empty array means 'ALL'
-            """
+            # L1 logic: Raja Ray for Kolkata/Siliguri/Bhubaneshwar, Praduman for others
+            if branch_name in ['Kolkata', 'Siliguri', 'Bhubaneshwar']:
+                approver_filter = "AND email = 'raja.ray@pw.live'"
+            else:
+                approver_filter = "AND email = 'praduman.shukla@pw.live'"
         else:
-            query = f"""
-                SELECT email, name
-                FROM `{project_id}.{dataset_id}.authorized_persons`
-                WHERE is_active = true
-                AND approver_level = @level
-                AND (ARRAY_CONTAINS(@branch_name, branch_names) OR ARRAY_LENGTH(branch_names) = 0)
-            """
-        
+            approver_filter = ""  # L2 handles all branches
+            
+        query = f"""
+            SELECT email, name
+            FROM `{project_id}.{dataset_id}.authorized_persons`
+            WHERE is_active = TRUE
+            AND approver_level = @level
+            AND (@branch_name IN UNNEST(branch_names) OR 'All' IN UNNEST(branch_names) OR ARRAY_LENGTH(branch_names) = 0)
+            {approver_filter}
+        """
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
                 bigquery.ScalarQueryParameter('branch_name', 'STRING', branch_name),
                 bigquery.ScalarQueryParameter('level', 'STRING', level)
             ]
         )
+        logger.info(f"Executing approvers query for branch {branch_name}, level {level}: {query}")
         result = client.query(query, job_config=job_config).result()
-        return [(row.email, row.name) for row in result]
+        approvers = [(row.email, row.name) for row in result]
+        logger.info(f"Found {len(approvers)} approvers for branch {branch_name}: {approvers}")
+        return approvers
     except Exception as e:
-        logger.error(f"Error fetching approvers: {e}")
+        logger.error(f"Error fetching approvers for branch {branch_name}: {e}")
         return []
 
 
