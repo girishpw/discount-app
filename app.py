@@ -137,27 +137,33 @@ def get_authorized_person(email):
 
 
 def authenticate_user(email, password):
-    """Authenticate user with email and password"""
+    """Authenticate user with email and password."""
     client = get_bigquery_client()
     if not client:
+        logger.error("BigQuery client not available for authentication")
         return None
     
     try:
         query = f"""
             SELECT email, name, branch_names, approver_level, can_request_discount, password
             FROM `{project_id}.{dataset_id}.authorized_persons`
-            WHERE email = @email AND password = @password AND is_active = true
+            WHERE email = @email AND is_active = TRUE
         """
         job_config = bigquery.QueryJobConfig(
             query_parameters=[
-                bigquery.ScalarQueryParameter('email', 'STRING', email),
-                bigquery.ScalarQueryParameter('password', 'STRING', password)
+                bigquery.ScalarQueryParameter('email', 'STRING', email)
             ]
         )
+        logger.info(f"Executing authentication query for email: {email}")
         result = list(client.query(query, job_config=job_config).result())
-        return result[0] if result else None
+        if result and result[0]['password'] == password:  # Plain-text comparison
+            logger.info(f"Authentication successful for {email}")
+            return result[0]
+        else:
+            logger.warning(f"Authentication failed for {email}: Invalid password or user not found")
+            return None
     except Exception as e:
-        logger.error(f"Error authenticating user: {e}")
+        logger.error(f"Error authenticating user {email}: {e}")
         return None
 
 
@@ -364,8 +370,7 @@ def debug_config():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Password-based login for users"""
-    # Check if user is already logged in
+    """Password-based login for users."""
     if 'logged_in_email' in session:
         return redirect(url_for('dashboard'))
     
@@ -375,23 +380,26 @@ def login():
         
         # Validate pw.live domain
         if not validate_pw_email(email):
+            logger.warning(f"Invalid email domain for {email}")
             flash('Please use your official pw.live email address.', 'error')
             return render_template('login.html')
         
-        # Check credentials in database
+        # Authenticate
         auth_person = authenticate_user(email, password)
         if not auth_person:
+            logger.warning(f"Login failed for {email}")
             flash('Invalid email or password. Please try again.', 'error')
             return render_template('login.html')
         
         # Set session data
         session['logged_in_email'] = email
         session['user_name'] = auth_person['name']
-        session['branch_name'] = auth_person['branch_name']
+        session['branch_names'] = auth_person['branch_names']  # Update to array
         session['approver_level'] = auth_person['approver_level']
         session['can_request_discount'] = auth_person['can_request_discount']
         
-        flash(f'Welcome {auth_person["name"]}! You are logged in as {auth_person["approver_level"]} for {auth_person["branch_name"]}.', 'success')
+        logger.info(f"Login successful for {email} as {auth_person['approver_level']}")
+        flash(f'Welcome {auth_person["name"]}! You are logged in as {auth_person["approver_level"]} for {", ".join(auth_person["branch_names"])}.', 'success')
         return redirect(url_for('dashboard'))
     
     return render_template('login.html')
