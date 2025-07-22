@@ -144,7 +144,7 @@ def authenticate_user(email, password):
     
     try:
         query = f"""
-            SELECT email, name, branch_name, approver_level, can_request_discount, password
+            SELECT email, name, branch_names, approver_level, can_request_discount, password
             FROM `{project_id}.{dataset_id}.authorized_persons`
             WHERE email = @email AND password = @password AND is_active = true
         """
