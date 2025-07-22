@@ -152,7 +152,7 @@
                     <p class="text-white text-opacity-80 text-sm">{{ session.get('logged_in_email', 'user@pw.live') | truncate(25) }}</p>
                     <div class="mt-2">
                         <span class="px-3 py-1 bg-gradient-to-r from-cyan-400 to-purple-500 rounded-full text-xs font-medium">
-                            {{ session.get('approver_level', 'User') }} - {{ session.get('branch_name', 'N/A') }}
+                            {{ session.get('approver_level', 'User') }} - {{ session.get('branch_names', 'N/A') }}
                         </span>
                     </div>
                 </div>
