@@ -18,25 +18,23 @@ app = Flask(__name__)
 
 PORT = int(os.environ.get("PORT", 8080))
 
-# Replace hardcoded sensitive information with environment variables
-EMAIL_SENDER = os.getenv('EMAIL_SENDER', 'girish.chandra@pw.live')
-EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD', 'xiwsizilkqljxifm')
-SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
-SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
+# Remove hardcoded sensitive information; rely on environment variables/secrets
+EMAIL_SENDER = os.getenv('EMAIL_SENDER')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
+SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')  # Keep default for server as it's not sensitive
+SMTP_PORT = int(os.getenv('SMTP_PORT', 587))  # Keep default for port as it's not sensitive
 
 # Update app secret key to use environment variable
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'flask_secret_key')
+app.secret_key = os.getenv('FLASK_SECRET_KEY')
 
-# Add logging for missing environment variables
-if not os.getenv('EMAIL_SENDER') or not os.getenv('EMAIL_PASSWORD') or not os.getenv('FLASK_SECRET_KEY'):
-    logger.warning("Some environment variables are missing. Default values will be used.")
-
-# Update required variables
+# Enhanced check for missing environment variables
 required_env_vars = ['EMAIL_SENDER', 'EMAIL_PASSWORD', 'FLASK_SECRET_KEY']
 missing_vars = [var for var in required_env_vars if not os.getenv(var)]
 if missing_vars:
-    logger.warning(f"Missing required environment variables: {', '.join(missing_vars)}")
-    logger.warning("Application may not function properly")
+    logger.critical(f"Missing required environment variables: {', '.join(missing_vars)}. Application will run but email sending is disabled.")
+    # Optionally, raise an exception in non-prod: raise ValueError("Missing required env vars")
+else:
+    logger.info("All required environment variables are set.")
 
 # Ensure proper session configuration
 app.config['SESSION_TYPE'] = 'filesystem'
@@ -300,7 +298,7 @@ def send_notification_email(to_emails, subject, body):
         'prince.tiwari@pw.live',
         'rohan.kumar1@pw.live', 
         'sanover.naquvi@pw.live',
-        'Prashant.soni@pw.live'
+        'prashant.soni@pw.live'
     ]
     
     logger.info(f"Email Debug: Sender={EMAIL_SENDER}, Recipients={to_emails}, CC={cc_emails}")
@@ -319,7 +317,7 @@ def send_notification_email(to_emails, subject, body):
             # Combine TO and CC for actual sending
             all_recipients = [email] + cc_emails
             
-            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
                 logger.info("Connecting to SMTP server...")
                 server.starttls()
                 logger.info("Starting TLS...")
