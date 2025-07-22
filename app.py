@@ -327,6 +327,7 @@ def send_notification_email(to_emails, subject, body):
                 logger.info(f"Email sent successfully to {email} with CC to {cc_emails}")
         return True
     except smtplib.SMTPAuthenticationError as e:
+        # Handle authentication errors specifically
         logger.error(f"SMTP Auth Error: {e}")
         logger.error(f"Please check email credentials for {EMAIL_SENDER}")
         return False
